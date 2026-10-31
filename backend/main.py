@@ -9,6 +9,8 @@ Provides:
   GET  /health                               – Liveness probe
 """
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
@@ -57,6 +59,76 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Static Files & Frontend SPA Support ─────────────────────────────────────
+STATIC_CANDIDATES = [
+    Path(__file__).resolve().parent / "static",
+    Path(__file__).resolve().parent.parent / "dist",
+    Path("static"),
+    Path("dist"),
+    Path("backend/static"),
+]
+STATIC_DIR = next((p for p in STATIC_CANDIDATES if p.exists() and (p / "index.html").exists()), None)
+
+if STATIC_DIR and (STATIC_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+FALLBACK_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VELO AI — Voice-First Pace Coach API</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0f19; color: #f3f4f6; margin: 0; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 32px; max-width: 640px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    h1 { color: #38bdf8; margin-top: 0; font-size: 24px; }
+    p { color: #9ca3af; line-height: 1.6; }
+    .badge { display: inline-block; background: #065f46; color: #34d399; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+    .links { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+    a { background: #1e293b; color: #38bdf8; text-decoration: none; padding: 10px 18px; border-radius: 8px; font-weight: 500; font-size: 14px; border: 1px solid #334155; transition: all 0.2s; }
+    a:hover { background: #334155; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">● SERVICE OPERATIONAL</div>
+    <h1>VELO AI — Voice-First Pace Coach</h1>
+    <p>Real-time ANPR average-speed corridor coach & proactive camera proximity warning engine powered by Bolna Voice AI (FRIDAY).</p>
+    <div class="links">
+      <a href="/docs">Interactive Swagger Docs (/docs)</a>
+      <a href="/health">Health Check (/health)</a>
+      <a href="/api/live/status">Live Telemetry API (/api/live/status)</a>
+      <a href="/api/gantries">ANPR Gantries (/api/gantries)</a>
+    </div>
+  </div>
+</body>
+</html>"""
+
+@app.get("/")
+@app.head("/")
+def serve_root():
+    """Serve the React frontend or API dashboard status page."""
+    if STATIC_DIR and (STATIC_DIR / "index.html").exists():
+        return FileResponse(STATIC_DIR / "index.html")
+    return HTMLResponse(content=FALLBACK_HTML)
+
+@app.get("/favicon.ico")
+def serve_favicon():
+    if STATIC_DIR and (STATIC_DIR / "favicon.svg").exists():
+        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+    return Response(status_code=204)
+
+@app.get("/favicon.svg")
+def serve_favicon_svg():
+    if STATIC_DIR and (STATIC_DIR / "favicon.svg").exists():
+        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+    return Response(status_code=204)
+
+@app.get("/icons.svg")
+def serve_icons_svg():
+    if STATIC_DIR and (STATIC_DIR / "icons.svg").exists():
+        return FileResponse(STATIC_DIR / "icons.svg", media_type="image/svg+xml")
+    return Response(status_code=204)
 
 # ─── Verified GMDA NH-48 Gantry Dataset with JSON File Fallback ──────────────
 DEFAULT_GANTRIES = [
@@ -905,6 +977,22 @@ def end_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     sess = sessions.pop(session_id)
     return {"status": "ended", "session_id": session_id, "section": sess["section_name"]}
+
+
+@app.get("/{full_path:path}")
+def catch_all(full_path: str):
+    """Serve static frontend files or fallback to index.html for client-side SPA routing."""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+    
+    if STATIC_DIR:
+        target = STATIC_DIR / full_path
+        if target.exists() and target.is_file():
+            return FileResponse(target)
+        if (STATIC_DIR / "index.html").exists():
+            return FileResponse(STATIC_DIR / "index.html")
+    
+    raise HTTPException(status_code=404, detail="Not Found")
 
 
 if __name__ == "__main__":

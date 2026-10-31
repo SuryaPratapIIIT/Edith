@@ -8,8 +8,8 @@
 
 export const ENV = {
   // ── Backend ──────────────────────────────────────────────────────────────
-  /** FastAPI base URL – point to ngrok for Bolna or localhost for local dev */
-  BACKEND_URL: import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000',
+  /** FastAPI base URL – point to ngrok/localtunnel for Bolna or origin in production, localhost in dev */
+  BACKEND_URL: import.meta.env.VITE_BACKEND_URL || (typeof window !== 'undefined' && window.location.port !== '5173' ? window.location.origin : 'http://localhost:8000'),
 
   /** Default Bolna session ID – matches the FastAPI session store key */
   SESSION_ID: import.meta.env.VITE_DEFAULT_SESSION_ID ?? 'ride_gurgaon_101',
