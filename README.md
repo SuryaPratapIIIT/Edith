@@ -27,7 +27,9 @@
 
 </div>
 <br/>
+
 ## The Billion-Dollar Problem
+
 ### Why Traditional Radar Apps Fail on Modern Expressways
 
 Every major highway authority worldwide—from the **GMDA ITMS network in Gurugram (NH-48, Dwarka Expressway, Sohna Elevated Corridor)** to UK Smart Motorways and Dubai ITS—has transitioned from isolated spot speed traps to **Automated Number Plate Recognition (ANPR) Sectional Speed Enforcement**.
