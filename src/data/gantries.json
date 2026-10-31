@@ -1,0 +1,362 @@
+[
+  {
+    "id": "GMDA-NH48-01",
+    "name": "Shankar Chowk (Cyber Hub)",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.501036,
+    "lon": 77.091512,
+    "coords": [
+      77.091512,
+      28.501036
+    ],
+    "anpr_cameras": 18,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-02",
+    "name": "Atlas Chowk Skywalk",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.478109,
+    "lon": 77.06943,
+    "coords": [
+      77.06943,
+      28.478109
+    ],
+    "anpr_cameras": 12,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-03",
+    "name": "IFFCO Chowk Flyover",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.473646,
+    "lon": 77.063757,
+    "coords": [
+      77.063757,
+      28.473646
+    ],
+    "anpr_cameras": 11,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-04",
+    "name": "Signature Tower",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.468526,
+    "lon": 77.057311,
+    "coords": [
+      77.057311,
+      28.468526
+    ],
+    "anpr_cameras": 24,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-05",
+    "name": "Jharsa Chowk",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.454378,
+    "lon": 77.044394,
+    "coords": [
+      77.044394,
+      28.454378
+    ],
+    "anpr_cameras": 13,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-06",
+    "name": "Rajiv Chowk Underpass",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.445508,
+    "lon": 77.033597,
+    "coords": [
+      77.033597,
+      28.445508
+    ],
+    "anpr_cameras": 9,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-07",
+    "name": "Hero Honda Chowk",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.435464,
+    "lon": 77.010077,
+    "coords": [
+      77.010077,
+      28.435464
+    ],
+    "anpr_cameras": 10,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-NH48-08",
+    "name": "IMT Chowk Manesar",
+    "road": "NH-48 Expressway",
+    "corridor": "NH-48 Main",
+    "lat": 28.361593,
+    "lon": 76.938491,
+    "coords": [
+      76.938491,
+      28.361593
+    ],
+    "anpr_cameras": 10,
+    "limit_kmh": 80,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCR-01",
+    "name": "Bristol Chowk",
+    "road": "Golf Course Road",
+    "corridor": "Golf Course Corridor",
+    "lat": 28.4789,
+    "lon": 77.09391,
+    "coords": [
+      77.09391,
+      28.4789
+    ],
+    "anpr_cameras": 13,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCR-02",
+    "name": "Khusboo Chowk",
+    "road": "Golf Course Road",
+    "corridor": "Golf Course Corridor",
+    "lat": 28.468101,
+    "lon": 77.094508,
+    "coords": [
+      77.094508,
+      28.468101
+    ],
+    "anpr_cameras": 14,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCR-03",
+    "name": "Sector 27-43 Underpass",
+    "road": "Golf Course Road",
+    "corridor": "Golf Course Corridor",
+    "lat": 28.457994,
+    "lon": 77.096972,
+    "coords": [
+      77.096972,
+      28.457994
+    ],
+    "anpr_cameras": 6,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCR-04",
+    "name": "Genpact Golf Course Underpass",
+    "road": "Golf Course Road",
+    "corridor": "Golf Course Corridor",
+    "lat": 28.445341,
+    "lon": 77.098603,
+    "coords": [
+      77.098603,
+      28.445341
+    ],
+    "anpr_cameras": 6,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCR-05",
+    "name": "Rajesh Pilot Chowk",
+    "road": "Golf Course Extension Road (SPR)",
+    "corridor": "Golf Course Corridor",
+    "lat": 28.417389,
+    "lon": 77.091099,
+    "coords": [
+      77.091099,
+      28.417389
+    ],
+    "anpr_cameras": 14,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-SOHNA-01",
+    "name": "Subhash Chowk",
+    "road": "Sohna Road (NH-248A)",
+    "corridor": "Sohna Road Corridor",
+    "lat": 28.435897,
+    "lon": 77.040145,
+    "coords": [
+      77.040145,
+      28.435897
+    ],
+    "anpr_cameras": 12,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-SOHNA-02",
+    "name": "Vatika Chowk (Badshahpur)",
+    "road": "Sohna Road (NH-248A)",
+    "corridor": "Sohna Road Corridor",
+    "lat": 28.401446,
+    "lon": 77.043549,
+    "coords": [
+      77.043549,
+      28.401446
+    ],
+    "anpr_cameras": 16,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-HCC-01",
+    "name": "Millennium City Centre Chowk",
+    "road": "Netaji Subhash Marg",
+    "corridor": "Central Gurugram",
+    "lat": 28.458591,
+    "lon": 77.072832,
+    "coords": [
+      77.072832,
+      28.458591
+    ],
+    "anpr_cameras": 14,
+    "limit_kmh": 50,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-BAKH-01",
+    "name": "Bakhtawar Chowk",
+    "road": "Vikas Marg",
+    "corridor": "Central Gurugram",
+    "lat": 28.437494,
+    "lon": 77.058495,
+    "coords": [
+      77.058495,
+      28.437494
+    ],
+    "anpr_cameras": 10,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-MEDANTA-01",
+    "name": "Medanta CH Bakhtawar Singh Rd",
+    "road": "Sector 38 Medanta Road",
+    "corridor": "Central Gurugram",
+    "lat": 28.439702,
+    "lon": 77.046414,
+    "coords": [
+      77.046414,
+      28.439702
+    ],
+    "anpr_cameras": 8,
+    "limit_kmh": 50,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-MGROAD-01",
+    "name": "Sikanderpur MG Road Interchange",
+    "road": "Mehrauli-Gurgaon Road",
+    "corridor": "MG Road Corridor",
+    "lat": 28.482813,
+    "lon": 77.091486,
+    "coords": [
+      77.091486,
+      28.482813
+    ],
+    "anpr_cameras": 12,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-MGROAD-02",
+    "name": "Guru Dronacharya Metro",
+    "road": "Mehrauli-Gurgaon Road",
+    "corridor": "MG Road Corridor",
+    "lat": 28.490336,
+    "lon": 77.108001,
+    "coords": [
+      77.108001,
+      28.490336
+    ],
+    "anpr_cameras": 10,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCREXT-01",
+    "name": "Golf Course Ext / Sector 62",
+    "road": "Golf Course Extension Road",
+    "corridor": "SPR Corridor",
+    "lat": 28.406563,
+    "lon": 77.081499,
+    "coords": [
+      77.081499,
+      28.406563
+    ],
+    "anpr_cameras": 12,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-GCREXT-02",
+    "name": "Golf Course Ext / Sector 65",
+    "road": "Golf Course Extension Road",
+    "corridor": "SPR Corridor",
+    "lat": 28.398003,
+    "lon": 77.071057,
+    "coords": [
+      77.071057,
+      28.398003
+    ],
+    "anpr_cameras": 12,
+    "limit_kmh": 60,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-OLDDEL-01",
+    "name": "Atul Kataria Chowk",
+    "road": "Old Delhi Gurgaon Road",
+    "corridor": "Old Gurugram",
+    "lat": 28.488268,
+    "lon": 77.044413,
+    "coords": [
+      77.044413,
+      28.488268
+    ],
+    "anpr_cameras": 14,
+    "limit_kmh": 50,
+    "source": "GMDA ITMS"
+  },
+  {
+    "id": "GMDA-DWE-01",
+    "name": "Bajghera Underpass (Dwarka Expwy)",
+    "road": "Dwarka Expressway (NH-248BB)",
+    "corridor": "Dwarka Expressway",
+    "lat": 28.515096,
+    "lon": 77.028002,
+    "coords": [
+      77.028002,
+      28.515096
+    ],
+    "anpr_cameras": 16,
+    "limit_kmh": 70,
+    "source": "GMDA ITMS"
+  }
+]
