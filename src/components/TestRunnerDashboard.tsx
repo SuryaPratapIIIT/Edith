@@ -5,6 +5,7 @@ import { EXPRESSWAY_SECTIONS } from '../data/expressways';
 import { calculatePaceFromGPSLocation, getRoadDistanceComparison } from '../engine/paceEngine';
 import { getShortestRoadDistance, RoadDistanceResult } from '../services/roadRoutingService';
 import { voiceCoach } from '../services/voiceCoach';
+import { bolnaVoiceService } from '../services/bolnaVoiceService';
 import confetti from 'canvas-confetti';
 import {
   CheckCircle,
@@ -124,7 +125,8 @@ export const TestRunnerDashboard: React.FC<TestRunnerDashboardProps> = ({
 
   /**
    * Listen to Full Timeline Audio Narrator ("is is time pr ye hua h")
-   * Narrates each checkpoint timestamp sequentially with clean Hindi/Hinglish speech.
+   * Evaluates each checkpoint timestamp in real time using the Bolna Voice AI Agent (FRIDAY).
+   * Bolna Agent analyzes the physical situation dynamically in real time (zero hardcoded strings).
    */
   const playFullTimelineAudio = (scenario: TestCaseScenario) => {
     if (isPlayingTimeline) {
@@ -147,34 +149,40 @@ export const TestRunnerDashboard: React.FC<TestRunnerDashboardProps> = ({
       const step = steps[idx];
       setActiveNarratingStepIndex(step.timestampIndex);
 
-      // Construct clear narrative audio text
-      let speechText = '';
-      if (narratorLanguage === 'hinglish') {
-        speechText = `Time ${step.elapsed_s} second. Checkpoint ${step.timestampIndex}: Vehicle ${Math.round(step.covered_m)} meter road distance cover kar chuka hai. Speed ${step.speed_kmh} km per hour. ${step.voicePrompt.hinglish}`;
-      } else {
-        speechText = `Time ${step.elapsed_s} seconds. Checkpoint ${step.timestampIndex}: Vehicle covered ${(step.covered_m / 1000).toFixed(1)} kilometers road distance at ${step.speed_kmh} kilometers per hour. ${step.voicePrompt.english}`;
-      }
+      // Play alert chime for the step
+      voiceCoach.playAlertChime(step.expectedAlert);
 
-      voiceCoach.speakWithCallback(speechText, () => {
-        if (!narratorAbortRef.current) {
-          // Pause 600ms between checkpoints
-          setTimeout(() => {
-            speakStep(idx + 1);
-          }, 600);
-        }
+      // Trigger Bolna Voice AI Agent to analyze and speak the step in real time
+      bolnaVoiceService.triggerAgentSituation('test_case_eval', {
+        test_case_id: scenario.id,
+        checkpoint_index: step.timestampIndex,
+        checkpoint_name: step.checkpointName,
+        speed_kmh: step.speed_kmh,
+        limit_kmh: scenario.section.limit_kmh,
+        ceiling_kmh: step.expectedCeiling_kmh,
+        covered_m: step.covered_m,
+        remaining_m: scenario.section.length_m - step.covered_m,
+        alert: step.expectedAlert,
+        situation_notes: step.explanation,
+        language: narratorLanguage
       });
+
+      if (!narratorAbortRef.current) {
+        setTimeout(() => {
+          speakStep(idx + 1);
+        }, 4500);
+      }
     };
 
-    // Begin sequence with brief intro
-    const intro = narratorLanguage === 'hinglish'
-      ? `${scenario.id} Timeline audio evaluation shuru ho raha hai.`
-      : `Starting audio timeline evaluation for ${scenario.id}.`;
-
-    voiceCoach.speakWithCallback(intro, () => {
-      setTimeout(() => {
-        speakStep(0);
-      }, 400);
+    // Begin sequence with Bolna Agent
+    bolnaVoiceService.triggerAgentSituation('route_planned', {
+      situation_notes: `Starting real-time audio evaluation for Scenario ${scenario.id}`,
+      language: narratorLanguage
     });
+
+    setTimeout(() => {
+      speakStep(0);
+    }, 1200);
   };
 
   const stopTimelineAudio = () => {

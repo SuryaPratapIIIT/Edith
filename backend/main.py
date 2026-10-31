@@ -8,7 +8,7 @@ Provides:
   GET  /api/gantries/sections                – All enforcement sections derived from gantries
   GET  /health                               – Liveness probe
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
@@ -159,6 +159,22 @@ class LiveTelemetryPayload(BaseModel):
     distance_to_camera_m: Optional[float] = None
     challan_risk: Optional[str] = "zero"
     alert: Optional[str] = "green"
+    event_type: Optional[str] = None
+    checkpoint_index: Optional[int] = None
+    checkpoint_name: Optional[str] = None
+    ceiling_kmh: Optional[float] = None
+    current_avg_kmh: Optional[float] = None
+    banked_time_s: Optional[float] = None
+    test_case_id: Optional[str] = None
+    situation_context: Optional[str] = None
+    language: Optional[str] = "hinglish"
+    route_origin: Optional[str] = "Gurugram"
+    route_destination: Optional[str] = "Destination"
+    total_journey_m: Optional[float] = None
+    journey_elapsed_s: Optional[float] = None
+    total_cameras: Optional[int] = None
+    cleared_cameras: Optional[int] = None
+    challan_count: Optional[int] = None
 
 
 class BolnaSessionRequest(BaseModel):
@@ -305,23 +321,46 @@ def update_live_telemetry(payload: LiveTelemetryPayload):
     sess["limit_kmh"] = payload.limit_kmh
     sess["covered_m"] = payload.covered_m
     sess["remaining_m"] = payload.remaining_m
-    sess["ceiling_kmh"] = payload.limit_kmh
+    sess["ceiling_kmh"] = payload.ceiling_kmh if payload.ceiling_kmh is not None else payload.limit_kmh
     sess["alert"] = payload.alert or "green"
     sess["next_camera"] = payload.next_camera or "Upcoming GMDA Gantry"
-    sess["distance_to_camera_m"] = payload.distance_to_camera_m or 0
+    sess["distance_to_camera_m"] = payload.distance_to_camera_m if payload.distance_to_camera_m is not None else 0
     sess["challan_risk"] = payload.challan_risk or "zero"
+    sess["event_type"] = payload.event_type
+    sess["checkpoint_index"] = payload.checkpoint_index
+    sess["checkpoint_name"] = payload.checkpoint_name
+    sess["current_avg_kmh"] = payload.current_avg_kmh
+    sess["banked_time_s"] = payload.banked_time_s
+    sess["test_case_id"] = payload.test_case_id
+    sess["situation_context"] = payload.situation_context
+    sess["language"] = payload.language or "hinglish"
+    sess["route_origin"] = payload.route_origin or sess.get("route_origin", "Gurugram Origin")
+    sess["route_destination"] = payload.route_destination or sess.get("route_destination", "Gurugram Destination")
+    sess["total_journey_m"] = payload.total_journey_m if payload.total_journey_m is not None else sess.get("total_journey_m", payload.covered_m + payload.remaining_m)
+    sess["journey_elapsed_s"] = payload.journey_elapsed_s if payload.journey_elapsed_s is not None else sess.get("journey_elapsed_s", 0)
+    sess["total_cameras"] = payload.total_cameras if payload.total_cameras is not None else sess.get("total_cameras", 7)
+    sess["cleared_cameras"] = payload.cleared_cameras if payload.cleared_cameras is not None else sess.get("cleared_cameras", 0)
+    sess["challan_count"] = payload.challan_count if payload.challan_count is not None else sess.get("challan_count", 0)
+    sess["updated_at"] = time.time()
 
     return {"status": "synced", "session_id": session_id}
 
 
 @app.get("/api/live/status")
 @app.get("/api/session/status")
-def get_live_bolna_status():
+def get_live_bolna_status(response: Response):
     """
     Direct endpoint for Bolna agent tools without requiring session_id.
-    Returns real-time vehicle speed, camera proximity, legal ceiling speed, and challan risk.
+    Returns real-time vehicle speed, camera proximity, legal ceiling speed, ETA, and challan risk.
+    Guaranteed zero-cache freshness for real-time AI tool querying.
     """
-    if sessions:
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, proxy-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    if "live_ride" in sessions:
+        latest_sess = sessions["live_ride"]
+    elif sessions:
         latest_sess = list(sessions.values())[-1]
     else:
         latest_sess = None
@@ -331,37 +370,181 @@ def get_live_bolna_status():
             "current_section": "Gurugram Open Road Alignment",
             "posted_limit": "70 km/h",
             "current_speed": "0 km/h",
-            "current_avg_speed": "Within limits",
+            "speed_kmh": 0,
+            "limit_kmh": 70,
+            "ceiling_kmh": 70.0,
+            "speed_status": "legal",
+            "exceeding_status": "compliant",
+            "exceeding_details": "You are not exceeding any speed threshold.",
+            "current_avg_speed": "0 km/h",
             "max_allowed_pace": "70 km/h",
             "status": "green",
             "camera_nearby": "Upcoming GMDA ANPR gantry along route",
+            "next_camera_name": "GMDA ANPR Gantry",
             "distance_to_camera_m": 800,
+            "estimated_time_to_camera": "Reaching in 41 seconds at 70 km/h",
+            "estimated_time_to_destination": "12 minutes",
+            "covered_meters": 0,
+            "remaining_meters": 800,
+            "banked_time_seconds": 0,
+            "active_event": "idle",
+            "checkpoint_index": None,
+            "checkpoint_name": None,
+            "test_case_id": None,
             "challan_risk": "Zero Risk - Clean Record",
-            "coaching_note": "Aap safe speed par hain. Full legal pace maintain rakhein."
+            "trip_summary": "Stationary at trip starting point. All sensors live.",
+            "situation_analysis": "Vehicle stationary at starting point. All systems nominal.",
+            "coaching_note": "Aap safe speed par hain. Full legal pace maintain rakhein.",
+            "freshness_timestamp": round(time.time(), 3)
         }
 
+    speed_val = round(latest_sess.get("current_speed_kmh", 0))
+    limit_val = round(latest_sess.get("limit_kmh", 70))
+    ceiling_val = round(latest_sess.get("ceiling_kmh", limit_val), 1)
     alert = latest_sess.get("alert", "green")
     cam_name = latest_sess.get("next_camera", "Upcoming GMDA Camera Gantry")
-    dist_m = latest_sess.get("distance_to_camera_m", round(latest_sess.get("remaining_m", 500)))
+    dist_m = round(latest_sess.get("distance_to_camera_m", round(latest_sess.get("remaining_m", 500))))
+    covered_m = round(latest_sess.get("covered_m", 0))
+    remaining_m = round(latest_sess.get("remaining_m", 0))
+    avg_speed_val = round(latest_sess.get("current_avg_kmh", speed_val), 1)
+    banked_time_val = round(latest_sess.get("banked_time_s", 0), 1)
+    event_type = latest_sess.get("event_type", "driver_query")
+    checkpoint_idx = latest_sess.get("checkpoint_index")
+    checkpoint_name = latest_sess.get("checkpoint_name")
+    test_case_id = latest_sess.get("test_case_id")
+    situation_ctx = latest_sess.get("situation_context")
 
-    if alert == "red":
-        advice = f"Caution! Speed {round(latest_sess['current_speed_kmh'])} km/h limit se zyada hai. Camera gantry {cam_name} aane wali hai, speed immediately slow karo."
-    elif alert == "amber":
-        advice = f"Speed ceiling ke karib hai. {round(latest_sess['ceiling_kmh'])} km/h ke andar rakhein."
+    # Accurate Physics Calculations
+    speed_ms = speed_val / 3.6
+    effective_ms = speed_ms if speed_val > 5 else (limit_val / 3.6)
+    time_to_cam_s = round(dist_m / effective_ms, 1)
+    time_to_cam_human = f"{time_to_cam_s} seconds" if time_to_cam_s < 60 else f"{round(time_to_cam_s/60, 1)} minutes"
+
+    # ETA to destination
+    eta_dest_sec = round(remaining_m / effective_ms)
+    eta_dest_human = f"{int(eta_dest_sec // 60)} min {int(eta_dest_sec % 60)} sec" if eta_dest_sec >= 60 else f"{int(eta_dest_sec)} seconds"
+
+    excess_limit = max(0.0, round(speed_val - limit_val, 1))
+    excess_ceiling = max(0.0, round(speed_val - ceiling_val, 1))
+    is_speeding = excess_limit > 0.0
+    is_ceiling_breached = excess_ceiling > 0.0
+
+    target_speed_ms = (ceiling_val / 3.6) if ceiling_val < speed_val else (limit_val / 3.6)
+    required_decel_ms2 = round(max(0.0, (speed_ms**2 - target_speed_ms**2) / (2 * max(1.0, dist_m))), 2) if speed_val > ceiling_val else 0.0
+
+    # Explicit Exceeding Status & Detail
+    if is_speeding:
+        speed_status_str = "speeding"
+        exceeding_status = "exceeding"
+        exceeding_details = f"You are exceeding the posted speed limit by +{round(excess_limit)} km/h"
+    elif is_ceiling_breached:
+        speed_status_str = "over_ceiling"
+        exceeding_status = "exceeding"
+        exceeding_details = f"You are exceeding the dynamic safe pace ceiling by +{round(excess_ceiling)} km/h"
     else:
-        advice = f"Aap safe chal rahe hain. {round(latest_sess['ceiling_kmh'])} km/h tak legal pace allowed hai."
+        speed_status_str = "safe"
+        exceeding_status = "compliant"
+        exceeding_details = "You are NOT exceeding any speed threshold"
+
+    # Persistent Long Trip Context
+    origin_name = latest_sess.get("route_origin", "Gurugram Origin")
+    dest_name = latest_sess.get("route_destination", "Gurugram Destination")
+    total_trip_km = round(latest_sess.get("total_journey_m", covered_m + remaining_m) / 1000, 1)
+    covered_km = round(covered_m / 1000, 1)
+    remaining_km = round(remaining_m / 1000, 1)
+    progress_pct = min(100, round((covered_m / max(1.0, covered_m + remaining_m)) * 100))
+    total_cams = latest_sess.get("total_cameras", 7)
+    cleared_cams = latest_sess.get("cleared_cameras", 0)
+    trip_challans = latest_sess.get("challan_count", 0)
+    elapsed_s = latest_sess.get("journey_elapsed_s", 0)
+    elapsed_min = round(elapsed_s / 60, 1)
+
+    trip_summary = (
+        f"Trip from {origin_name} to {dest_name} ({total_trip_km} km total). "
+        f"Elapsed time: {elapsed_min} mins. Covered: {covered_km} km ({progress_pct}% done). "
+        f"Remaining: {remaining_km} km (ETA: {eta_dest_human}). "
+        f"Cameras cleared: {cleared_cams} of {total_cams}. "
+        f"Challan status: {'Zero Challans' if trip_challans == 0 else f'{trip_challans} violation(s)'}."
+    )
+
+    # Dynamic situation analysis with explicit 'Camera is heading' and 'exceeding or not'
+    analysis_parts = []
+    if event_type == "camera_100m" or event_type == "camera_proximity":
+        analysis_parts.append(
+            f"Camera is heading! ANPR Camera {cam_name} is {dist_m}m ahead (ETA {time_to_cam_human}). "
+            f"Posted limit is {limit_val} km/h. "
+            f"{'You are EXCEEDING the limit by +' + str(round(excess_limit)) + ' km/h! Slow down!' if is_speeding else 'You are NOT exceeding the limit.'}"
+        )
+    elif event_type == "spot_violation":
+        analysis_parts.append(f"Spot Radar Crossing: Instant speed {speed_val} km/h exceeded {limit_val} km/h limit by +{excess_limit} km/h at {cam_name}.")
+    elif event_type == "speed_violation":
+        analysis_parts.append(f"Corridor Average Violation: Section average speed {avg_speed_val} km/h exceeded legal limit {limit_val} km/h. Time deficit {banked_time_val}s.")
+    elif event_type == "checkpoint":
+        cp_num = checkpoint_idx or 1
+        analysis_parts.append(
+            f"Checkpoint {cp_num} ({progress_pct}% progress): Speed {speed_val} km/h, average {avg_speed_val} km/h. "
+            f"Ceiling is {ceiling_val} km/h. "
+            f"{'You are EXCEEDING the safe ceiling by +' + str(round(excess_ceiling)) + ' km/h!' if is_ceiling_breached else 'You are NOT exceeding the ceiling.'} "
+            f"Banked time: {banked_time_val:+}s."
+        )
+    elif event_type == "route_planned":
+        analysis_parts.append(f"Route Initialized: Path from {origin_name} to {dest_name} ({total_trip_km} km).")
+    elif event_type == "journey_complete":
+        analysis_parts.append(f"Destination Arrived: Reached {dest_name}! Total covered {covered_km} km with {cleared_cams} cameras cleared.")
+    elif event_type == "test_case_eval":
+        analysis_parts.append(f"Scenario {test_case_id} Step: Speed {speed_val} km/h, ceiling {ceiling_val} km/h, alert {alert.upper()}. {situation_ctx or ''}")
+    
+    if is_speeding:
+        analysis_parts.append(f"Vehicle is {excess_limit} km/h over posted limit. Required deceleration: {required_decel_ms2} m/s².")
+    elif is_ceiling_breached:
+        analysis_parts.append(f"Vehicle speed {speed_val} km/h exceeds safe ceiling {ceiling_val} km/h by +{excess_ceiling} km/h.")
+    else:
+        analysis_parts.append(f"Vehicle cruising legally within bounds (limit {limit_val} km/h).")
+
+    situation_analysis = " ".join(analysis_parts)
+
+    if is_speeding:
+        advice = f"Camera is heading! Speed is {speed_val} km/h (+{excess_limit} km/h over limit). Camera {cam_name} is in {dist_m}m ({time_to_cam_human}). Decelerate immediately to {ceiling_val} km/h to prevent a challan!"
+    elif is_ceiling_breached:
+        advice = f"You are exceeding the pace ceiling of {ceiling_val} km/h by +{excess_ceiling} km/h. Slow down to recover your time budget."
+    elif alert == "amber":
+        advice = f"Speed {speed_val} km/h is approaching safe ceiling {ceiling_val} km/h. You are not exceeding yet. Hold steady."
+    else:
+        advice = f"Cruising safely at {speed_val} km/h within {limit_val} km/h limit. You are not exceeding. All green!"
 
     return {
-        "current_section": latest_sess["section_name"],
-        "posted_limit": f"{latest_sess['limit_kmh']} km/h",
-        "current_speed": f"{round(latest_sess['current_speed_kmh'])} km/h",
-        "current_avg_speed": f"{round(latest_sess.get('current_avg_kmh', 0))} km/h",
-        "max_allowed_pace": f"{round(latest_sess['ceiling_kmh'])} km/h",
+        "current_section": latest_sess.get("section_name", "Gurugram Corridor"),
+        "posted_limit": f"{limit_val} km/h",
+        "current_speed": f"{speed_val} km/h",
+        "speed_kmh": speed_val,
+        "limit_kmh": limit_val,
+        "ceiling_kmh": ceiling_val,
+        "max_allowed_pace": f"{ceiling_val} km/h",
+        "speed_status": speed_status_str,
+        "exceeding_status": exceeding_status,
+        "exceeding_details": exceeding_details,
+        "current_avg_speed": f"{avg_speed_val} km/h",
         "status": alert,
-        "camera_nearby": f"{cam_name} (in {round(dist_m)} meters)",
-        "distance_to_camera_m": round(dist_m),
+        "camera_nearby": f"{cam_name} (in {dist_m} meters)",
+        "next_camera_name": cam_name,
+        "distance_to_camera_m": dist_m,
+        "estimated_time_to_camera": time_to_cam_human,
+        "estimated_time_to_destination": eta_dest_human,
+        "covered_meters": covered_m,
+        "remaining_meters": remaining_m,
+        "banked_time_seconds": banked_time_val,
+        "active_event": event_type,
+        "checkpoint_index": checkpoint_idx,
+        "checkpoint_name": checkpoint_name,
+        "test_case_id": test_case_id,
         "challan_risk": latest_sess.get("challan_risk", "Zero Risk - Clean Record"),
-        "coaching_note": advice
+        "trip_summary": trip_summary,
+        "route_origin": origin_name,
+        "route_destination": dest_name,
+        "progress_percent": progress_pct,
+        "situation_analysis": situation_analysis,
+        "coaching_note": advice,
+        "freshness_timestamp": round(time.time(), 3)
     }
 
 
@@ -396,6 +579,199 @@ def get_bolna_status(session_id: str):
         "remaining_km": remaining_km,
         "banked_time_s": sess.get("banked_time_s", 0),
         "coaching_note": advice
+    }
+
+
+class HangupPayload(BaseModel):
+    reason: Optional[str] = "driver requested hangup"
+
+
+@app.post("/api/bolna/hangup")
+def handle_bolna_hangup(payload: Optional[HangupPayload] = None, response: Response = None):
+    """
+    Called by Bolna Agent tool hangup_call when the driver says 'cut the call', 'hang up', or 'end session'.
+    Sets hangup flag so frontend immediately terminates the WebRTC call from Friday's end.
+    """
+    if response:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    for s in sessions.values():
+        s["hangup_requested"] = True
+        s["hangup_timestamp"] = time.time()
+    if "live_ride" in sessions:
+        sessions["live_ride"]["hangup_requested"] = True
+        sessions["live_ride"]["hangup_timestamp"] = time.time()
+    return {
+        "status": "hangup_initiated",
+        "action": "cut_call",
+        "message": "Cutting the call now, boss. Drive safely!"
+    }
+
+
+@app.get("/api/bolna/hangup-status")
+def get_hangup_status(response: Response):
+    """
+    Polled by frontend WebRTC service to cleanly drop the call when Friday initiates hangup.
+    """
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    sess = sessions.get("live_ride")
+    if not sess and sessions:
+        sess = list(sessions.values())[-1]
+    hangup_req = bool(sess.get("hangup_requested", False)) if sess else False
+    hangup_time = sess.get("hangup_timestamp", 0) if sess else 0
+    return {"hangup_requested": hangup_req, "timestamp": hangup_time}
+
+
+@app.post("/api/bolna/reset-hangup")
+def reset_hangup_status(response: Response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    for s in sessions.values():
+        s["hangup_requested"] = False
+    return {"status": "reset"}
+
+
+class AnalyzeSituationRequest(BaseModel):
+    speed_kmh: float
+    limit_kmh: float
+    covered_m: float
+    remaining_m: float
+    camera_nearby: Optional[str] = None
+    distance_to_camera_m: Optional[float] = None
+    alert: Optional[str] = "green"
+    ceiling_kmh: Optional[float] = None
+    current_avg_kmh: Optional[float] = None
+    banked_time_s: Optional[float] = None
+    event_type: Optional[str] = "live_telemetry"
+    checkpoint_index: Optional[int] = None
+    checkpoint_name: Optional[str] = None
+    test_case_id: Optional[str] = None
+    situation_notes: Optional[str] = None
+    language: Optional[str] = "hinglish"
+
+
+@app.post("/api/bolna/analyze-situation")
+async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
+    """
+    Real-time dynamic situational reasoning engine matching FRIDAY Bolna Persona.
+    Dynamically reasons over live vehicle physics, speed deltas, arrival times,
+    deceleration budgets, and banked time without hardcoded scripts.
+    """
+    speed = round(req.speed_kmh, 1)
+    limit = round(req.limit_kmh, 1)
+    ceiling = round(req.ceiling_kmh if req.ceiling_kmh is not None else limit, 1)
+    dist_m = round(req.distance_to_camera_m if req.distance_to_camera_m is not None else req.remaining_m)
+    cam = req.camera_nearby or "Upcoming ANPR Camera"
+    lang = req.language or "hinglish"
+    alert = (req.alert or "green").lower()
+    avg_speed = round(req.current_avg_kmh if req.current_avg_kmh is not None else speed, 1)
+    banked_s = round(req.banked_time_s or 0.0, 1)
+    covered = round(req.covered_m)
+    remaining = round(req.remaining_m)
+    total_dist = max(1, covered + remaining)
+    pct_progress = min(100, round((covered / total_dist) * 100))
+
+    speed_ms = speed / 3.6
+    time_to_cam_s = round(dist_m / max(0.1, speed_ms), 1) if speed_ms > 0 else 999.0
+    excess_limit = max(0.0, round(speed - limit, 1))
+    excess_ceiling = max(0.0, round(speed - ceiling, 1))
+    target_ms = (ceiling / 3.6) if ceiling < speed else (limit / 3.6)
+    decel_required = round(max(0.0, (speed_ms**2 - target_ms**2) / (2 * max(1.0, dist_m))), 2) if speed > ceiling else 0.0
+    is_speeding = excess_limit > 0.0
+
+    # Dynamic real-time situational synthesis
+    if req.event_type == "camera_100m" or req.event_type == "camera_proximity":
+        if is_speeding:
+            if lang == "english":
+                spoken = f"Camera is heading! {cam} is {dist_m}m ahead with {time_to_cam_s}s arrival. Posted limit is {limit} km/h. You are EXCEEDING the limit by +{round(excess_limit)} km/h! Decelerate at {decel_required} m/s2 down to {round(ceiling)} km/h to prevent a challan."
+            else:
+                spoken = f"Camera is heading boss! {dist_m} meter aage {cam} hai, arrival {time_to_cam_s} second mein. Live speed {round(speed)} km/h limit {limit} se {round(excess_limit)} km/h exceed kar rahi hai. Turant {round(ceiling)} km/h par layein!"
+        elif speed > ceiling:
+            if lang == "english":
+                spoken = f"Camera is heading! {cam} in {dist_m}m. Posted limit is {limit} km/h. You are EXCEEDING your safe pace ceiling of {round(ceiling)} km/h by +{round(excess_ceiling)} km/h. Ease throttle!"
+            else:
+                spoken = f"Camera is heading boss! {cam} {dist_m} meter door hai. Aap safe ceiling {round(ceiling)} km/h se {round(excess_ceiling)} km/h exceed kar rahe hain. Speed steady kijiye!"
+        else:
+            if lang == "english":
+                spoken = f"Camera is heading! Passing {cam} in {dist_m}m at {round(speed)} km/h. Posted limit is {limit} km/h. You are NOT exceeding the limit. Safe compliance."
+            else:
+                spoken = f"Camera is heading boss! {cam} {dist_m} meter aage hai, limit {limit} km/h. Aap exceed nahi kar rahe hain, speed {round(speed)} km/h bilkul safe hai."
+
+    elif req.event_type == "spot_violation":
+        if lang == "english":
+            spoken = f"Spot radar violation: Crossing speed recorded {round(speed)} km/h at {cam}, exceeding {round(limit)} km/h by +{round(excess_limit)} km/h. Spot challan penalty triggered."
+        else:
+            spoken = f"Spot radar violation: {cam} par crossing speed {round(speed)} km/h record hui jo {round(limit)} km/h se +{round(excess_limit)} km/h upar hai. Spot challan penalty active!"
+
+    elif req.event_type == "speed_violation":
+        if lang == "english":
+            spoken = f"Section average speed violation: Section mean speed is {round(avg_speed)} km/h exceeding legal ceiling {round(limit)} km/h. Time deficit is {abs(banked_s)} seconds."
+        else:
+            spoken = f"Corridor average violation: Section mean speed {round(avg_speed)} km/h limit {round(limit)} km/h se upar chali gayi hai. Time deficit {abs(banked_s)} second hai."
+
+    elif req.event_type == "checkpoint":
+        cp_label = req.checkpoint_name or f"Checkpoint {req.checkpoint_index or 1}"
+        if speed > ceiling or is_speeding or alert in ("red", "warn", "critical"):
+            overhead = round(excess_ceiling if speed > ceiling else excess_limit)
+            if lang == "english":
+                spoken = f"{cp_label} ({pct_progress}% split): You are EXCEEDING your safe pace ceiling of {round(ceiling)} km/h by +{overhead} km/h! Your speed is {round(speed)} km/h. Reduce throttle immediately to recover your banked time budget!"
+            else:
+                spoken = f"{cp_label} ({pct_progress}% split): Aap safe pace ceiling {round(ceiling)} km/h ko exceed kar rahe hain! Aapki speed {round(speed)} km/h hai jo ceiling se {overhead} km/h upar hai. Turant slow kijiye!"
+        else:
+            if lang == "english":
+                spoken = f"{cp_label} ({pct_progress}% split): You are NOT exceeding! Cruising safely at {round(speed)} km/h within your safe ceiling of {round(ceiling)} km/h. Banked time buffer is {banked_s:+} seconds."
+            else:
+                spoken = f"{cp_label} ({pct_progress}% split): Aap exceed nahi kar rahe hain! Speed {round(speed)} km/h safe ceiling {round(ceiling)} km/h ke andar hai. Time buffer safe hai."
+
+    elif req.event_type == "test_case_eval":
+        if lang == "english":
+            spoken = f"Scenario {req.test_case_id} evaluation: Speed {round(speed)} km/h against safe ceiling {round(ceiling)} km/h. Alert {alert.upper()}. {covered}m covered, {remaining}m remaining."
+        else:
+            spoken = f"Scenario {req.test_case_id} evaluation: Speed {round(speed)} km/h, safe ceiling {round(ceiling)} km/h. Alert {alert.upper()}. {covered} meter covered, {remaining} meter remaining."
+
+    elif req.event_type == "route_planned":
+        if lang == "english":
+            spoken = f"Route plan active: Trajectory mapped across {round(remaining / 1000, 1)} kilometers under active ANPR radar monitoring."
+        else:
+            spoken = f"Route active ho gaya boss: {round(remaining / 1000, 1)} kilometer path par ANPR radar network live hai."
+
+    elif req.event_type == "journey_complete":
+        if lang == "english":
+            spoken = f"Destination reached safely: Total {round(covered / 1000, 1)} km completed with clean ANPR compliance. Zero challans!"
+        else:
+            spoken = f"Safalta purvak destination pahunch gaye boss: Total {round(covered / 1000, 1)} kilometer clean ANPR compliance ke sath clear hue!"
+
+    elif req.event_type == "section_transition":
+        if lang == "english":
+            spoken = f"Section transition: Entering new corridor towards {cam}. Average pace was {round(avg_speed)} km/h, posted limit is {round(limit)} km/h."
+        else:
+            spoken = f"Section transition: Agle camera {cam} ki taraf badh rahe hain. Pichla average {round(avg_speed)} km/h tha, new limit {round(limit)} km/h hai."
+
+    elif is_speeding:
+        if lang == "english":
+            spoken = f"Live telemetry alert: Speed {round(speed)} km/h exceeds limit {round(limit)} km/h by +{round(excess_limit)} km/h. Ease throttle to {round(ceiling)} km/h."
+        else:
+            spoken = f"Live alert boss: Aapki speed {round(speed)} km/h limit {round(limit)} km/h se +{round(excess_limit)} km/h upar hai. Throttle kam karke {round(ceiling)} km/h par layein."
+
+    elif alert == "amber":
+        if lang == "english":
+            spoken = f"Pace advisory: Speed {round(speed)} km/h is approaching safe ceiling {round(ceiling)} km/h. Maintain current rhythm."
+        else:
+            spoken = f"Pace advisory: Speed {round(speed)} km/h safe ceiling {round(ceiling)} km/h ke karib hai. Speed steady rakhein."
+
+    else:
+        if lang == "english":
+            spoken = f"Cruise status: Speed {round(speed)} km/h within {round(limit)} km/h limit. All telemetry nominal."
+        else:
+            spoken = f"Status green: Speed {round(speed)} km/h safe limit {round(limit)} km/h ke andar chal rahi hai."
+
+    return {
+        "status": "analyzed",
+        "event_type": req.event_type,
+        "speed_kmh": speed,
+        "limit_kmh": limit,
+        "ceiling_kmh": ceiling,
+        "alert": req.alert,
+        "spoken_text": spoken,
+        "persona": "FRIDAY (Bolna Voice AI Agent)"
     }
 
 

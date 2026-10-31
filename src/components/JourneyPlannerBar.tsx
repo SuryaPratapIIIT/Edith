@@ -1,19 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GurgaonPlace, searchGurgaonPlaces, GURGAON_PLACES } from '../data/gurgaonPlaces';
-import { PlannedJourney, POPULAR_JOURNEYS } from '../services/journeyService';
+import { GurgaonPlace, searchGurgaonPlaces } from '../data/gurgaonPlaces';
+import { PlannedJourney } from '../services/journeyService';
 import {
   MapPin,
-  ArrowRight,
   ArrowLeftRight,
-  Search,
-  Sparkles,
   Camera,
   Compass,
-  Check,
   MousePointerClick,
   Loader2,
   X,
-  Navigation2,
   Radio,
   AlertCircle
 } from 'lucide-react';
@@ -34,7 +29,7 @@ interface JourneyPlannerBarProps {
   onSelectOriginPlace: (place: GurgaonPlace) => void;
   onSelectDestinationPlace: (place: GurgaonPlace) => void;
   onSwapPlaces: () => void;
-  onSelectPreset: (originId: string, destinationId: string) => void;
+  onSelectPreset?: (originId: string, destinationId: string) => void;
 }
 
 export const JourneyPlannerBar: React.FC<JourneyPlannerBarProps> = ({
@@ -53,7 +48,6 @@ export const JourneyPlannerBar: React.FC<JourneyPlannerBarProps> = ({
   onSelectOriginPlace,
   onSelectDestinationPlace,
   onSwapPlaces,
-  onSelectPreset
 }) => {
   // Search inputs state
   const [originSearch, setOriginSearch] = useState<string>(journey.origin.name);
@@ -93,11 +87,11 @@ export const JourneyPlannerBar: React.FC<JourneyPlannerBarProps> = ({
   return (
     <div className="w-full bg-gray-900/95 backdrop-blur-xl rounded-2xl border border-gray-800 p-3.5 sm:p-4 shadow-2xl flex flex-col gap-3">
       {/* Mode Switcher: Simulation vs Real-Time Device GPS */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pb-2 border-b border-gray-800/80">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pb-2.5 border-b border-gray-800/80">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
-          <span className="text-xs font-mono font-bold text-gray-300 uppercase tracking-wider">
-            Google Maps Real-Time Mode
+          <span className="text-xs font-mono font-bold text-cyan-300 tracking-wider">
+            Real Time Mode
           </span>
         </div>
 
@@ -129,7 +123,7 @@ export const JourneyPlannerBar: React.FC<JourneyPlannerBarProps> = ({
         )}
       </div>
 
-      {/* Main Google Maps Dual Location Search Controls */}
+      {/* Main Dual Location Search Controls */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
         {/* Origin / Dest Dual Search Inputs */}
         <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -424,32 +418,6 @@ export const JourneyPlannerBar: React.FC<JourneyPlannerBarProps> = ({
           )}
         </div>
       )}
-
-      {/* Bottom Row: Popular 1-Click Commute Routes */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-0.5 pt-1 border-t border-gray-800/60 scrollbar-none">
-        <span className="text-[10px] font-mono text-gray-500 flex items-center gap-1 flex-shrink-0">
-          <Sparkles className="w-3 h-3 text-cyan-400" />
-          <span>Popular Commutes:</span>
-        </span>
-        {POPULAR_JOURNEYS.map((pop) => {
-          const isSelected =
-            journey.origin.id === pop.originId && journey.destination.id === pop.destinationId;
-          return (
-            <button
-              key={pop.title}
-              onClick={() => onSelectPreset(pop.originId, pop.destinationId)}
-              className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
-                isSelected
-                  ? 'bg-cyan-950/80 border border-cyan-400/80 text-cyan-200 font-bold shadow-[0_0_12px_rgba(6,182,212,0.4)]'
-                  : 'bg-gray-950/60 border border-gray-800 text-gray-400 hover:text-gray-200 hover:border-gray-700'
-              }`}
-            >
-              <span>{pop.title}</span>
-              <span className="text-[9px] opacity-70 font-normal">({pop.distanceKm})</span>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 };

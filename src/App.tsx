@@ -88,6 +88,7 @@ export default function App() {
   const prevCoveredInZoneRef = useRef<number>(0);
   const firedCheckpointsRef = useRef<Set<number>>(new Set());
   const checkedSpotCamerasRef = useRef<Set<string>>(new Set());
+  const alertedCameras100mRef = useRef<Set<string>>(new Set());
   const completedZonesRef = useRef<Set<number>>(new Set());
   const zoneEntryTimesRef = useRef<Record<number, number>>({});
 
@@ -223,10 +224,20 @@ export default function App() {
     });
   }, [journeyCovered_m, journeyElapsed_s, journey.enforcementZones]);
 
-  // 1. Instantaneous Spot Camera Radar Check: Detects speed at camera gantry
+  // 1. Instantaneous Spot Camera Radar Check: Detects speed at camera gantry + 100m proximity warning
   useEffect(() => {
     journey.cameras.forEach(cam => {
       const distDelta = journeyCovered_m - cam.journeyDistance_m;
+
+      // 100m Camera Proximity Voice Alert Trigger: between 30m and 120m before camera
+      if (distDelta >= -120 && distDelta <= -30) {
+        if (!alertedCameras100mRef.current.has(cam.id)) {
+          alertedCameras100mRef.current.add(cam.id);
+          const distRemaining = Math.max(10, Math.round(Math.abs(distDelta)));
+          voiceCoach.triggerCameraNearby100m(cam.name, cam.limit_kmh, distRemaining, currentSpeedThrottle);
+        }
+      }
+
       // Proximity radar window: within 20m before to 30m after gantry
       if (distDelta >= -20 && distDelta <= 30) {
         if (!checkedSpotCamerasRef.current.has(cam.id)) {
@@ -363,7 +374,7 @@ export default function App() {
 
     setActiveWarning(warning);
     setWarningHistory(prevList => [...prevList, warning]);
-    voiceCoach.triggerCheckpointWarning(warning);
+    voiceCoach.triggerCheckpointWarning(warning, currentSpeedThrottle, postedLimit);
 
     const t = setTimeout(() => {
       setActiveWarning(w => (w?.checkpoint === cp ? null : w));
@@ -432,6 +443,7 @@ export default function App() {
     setSectionHistory([]);
     setChallanHistory([]);
     checkedSpotCamerasRef.current.clear();
+    alertedCameras100mRef.current.clear();
     completedZonesRef.current.clear();
     zoneEntryTimesRef.current = {};
     currentZoneIndexRef.current = null;
@@ -654,6 +666,9 @@ export default function App() {
       section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
       speed_kmh: Math.round(currentSpeedThrottle),
       limit_kmh: postedLimit,
+      ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
+      current_avg_kmh: Math.round(currentPace.currentAvg_kmh),
+      banked_time_s: Math.round(currentPace.banked_time_s),
       covered_m: Math.round(journeyCovered_m),
       remaining_m: Math.round(distToDestination_m),
       next_camera: nextCamera ? nextCamera.name : 'Upcoming GMDA ANPR Camera',
@@ -662,7 +677,15 @@ export default function App() {
         challanHistory.length > 0
           ? `High Challan Risk (${challanHistory.length} incident(s) in region)`
           : 'Zero Challan Risk (Clean Record)',
-      alert: currentPace.alert
+      alert: currentPace.alert,
+      language: voiceLanguage,
+      route_origin: journey.origin.name,
+      route_destination: journey.destination.name,
+      total_journey_m: Math.round(journey.totalDistance_m),
+      journey_elapsed_s: Math.round(journeyElapsed_s),
+      total_cameras: journey.cameras.length,
+      cleared_cameras: journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length,
+      challan_count: challanHistory.length
     };
 
     const timer = setTimeout(() => {
@@ -671,7 +694,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       }).catch(() => {});
-    }, 300);
+    }, 50);
 
     return () => clearTimeout(timer);
   }, [
@@ -683,7 +706,11 @@ export default function App() {
     distToNextCamera_m,
     distToDestination_m,
     challanHistory.length,
-    currentPace.alert
+    currentPace.alert,
+    currentPace.max_avg_kmh,
+    currentPace.currentAvg_kmh,
+    currentPace.banked_time_s,
+    voiceLanguage
   ]);
 
   // Handle Play/Pause with automatic Bolna AI Agent (FRIDAY) session launch
@@ -700,25 +727,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black">
       {/* Top Streamlined Header Bar */}
-      <header className="sticky top-0 z-50 bg-gray-950/90 backdrop-blur-xl border-b border-gray-800/80 px-4 lg:px-8 py-2.5">
+      <header className="sticky top-0 z-50 bg-gray-950/90 backdrop-blur-xl border-b border-gray-800/80 px-4 lg:px-8 py-3">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.5)] border border-cyan-400/40">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-[0_0_18px_rgba(6,182,212,0.4)] border border-cyan-400/30">
               <Compass className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-black font-mono tracking-tight bg-gradient-to-r from-cyan-300 via-teal-200 to-white bg-clip-text text-transparent">
-                  PACE COACH // VELO AI
-                </h1>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  GOOGLE MAPS NAVIGATION VIEW
-                </span>
-              </div>
-              <p className="text-[10px] font-mono text-gray-400">
-                Continuous Gurugram Journey · ANPR Enforcement between Camera Spots · Normal Map Routing Otherwise
-              </p>
+              <h1 className="text-xl font-black font-mono tracking-wider bg-gradient-to-r from-cyan-300 via-teal-200 to-white bg-clip-text text-transparent">
+                VELO_AI
+              </h1>
             </div>
           </div>
 
@@ -762,13 +780,13 @@ export default function App() {
 
             <div className="bg-gray-900/90 px-3 py-1.5 rounded-xl border border-gray-800 text-gray-300 flex items-center gap-2">
               <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-              <span>🛣️ {(journeyCovered_m / 1000).toFixed(1)} / {(journey.totalDistance_m / 1000).toFixed(1)} km road</span>
+              <span>{(journeyCovered_m / 1000).toFixed(1)} / {(journey.totalDistance_m / 1000).toFixed(1)} km</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Google Maps Navigation Canvas */}
+      {/* Main Navigation Canvas */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col gap-4">
         {/* 1. Origin & Destination Selector Bar */}
         <JourneyPlannerBar
@@ -790,7 +808,7 @@ export default function App() {
           onSelectPreset={handleSelectPreset}
         />
 
-        {/* 2. Top Google Maps Turn / Maneuver Banner */}
+        {/* 2. Top Turn / Maneuver Banner */}
         <GoogleMapsNavBanner
           navMode={navMode}
           journey={journey}
@@ -908,15 +926,13 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-gray-500">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>GMDA ITMS Verified Camera Network · Continuous Real-Time Navigation View</span>
+            <span>VELO_AI · Real-Time Speed Compliance & ANPR Navigation</span>
           </div>
 
           <div className="flex items-center gap-3 text-[11px]">
-            <span>Active Camera Pacing Only in Speed Traps</span>
+            <span>Active Camera Pacing</span>
             <span>•</span>
-            <span>Normal Map Routing Outside</span>
-            <span>•</span>
-            <span>15m FOV Radar</span>
+            <span>Live Voice Guidance</span>
           </div>
         </div>
       </footer>

@@ -1,43 +1,30 @@
 import { AlertLevel, VoiceLanguage } from '../types/pace';
 import type { CheckpointWarning } from '../engine/warningEngine';
-import { getWarningVoiceText } from '../engine/warningEngine';
 import { bolnaVoiceService } from './bolnaVoiceService';
 
 class VoiceCoachService {
-  private synth: SpeechSynthesis | null = null;
   private audioCtx: AudioContext | null = null;
   private isMuted: boolean = false;
   private currentLanguage: VoiceLanguage = 'hinglish';
-  private lastAlertSpoken: string = '';
-  private lastAlertTime: number = 0;
-
-  constructor() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      // Cancel any lingering browser speech synthesis so only Bolna FRIDAY speaks
-      window.speechSynthesis.cancel();
-    }
-    this.synth = null;
-  }
 
   private getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.audioCtx) {
-      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtxClass) {
         this.audioCtx = new AudioCtxClass();
       }
     }
     if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume();
+      this.audioCtx.resume().catch(() => {});
     }
     return this.audioCtx;
   }
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
-    if (muted && this.synth) {
-      this.synth.cancel();
-    }
   }
 
   public getMuted(): boolean {
@@ -53,7 +40,8 @@ class VoiceCoachService {
   }
 
   /**
-   * Generates clean audio tones using Web Audio API oscillators.
+   * Generates clean radar audio chimes using Web Audio API oscillators.
+   * Provides zero-latency auditory cues for red, amber, green, and pre-alert.
    */
   public playAlertChime(level: AlertLevel | 'pre_alert') {
     if (this.isMuted) return;
@@ -63,7 +51,7 @@ class VoiceCoachService {
     const now = ctx.currentTime;
 
     if (level === 'red') {
-      // Urgent, rapid dual high-pitch pulse (880Hz -> 660Hz)
+      // Urgent, rapid dual high-pitch pulse (880Hz -> 700Hz)
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
       osc1.type = 'sawtooth';
@@ -101,7 +89,7 @@ class VoiceCoachService {
       osc.start(now);
       osc.stop(now + 0.4);
     } else if (level === 'pre_alert') {
-      // Radar chirp for gantry pre-alerts
+      // Radar chirp for gantry pre-alerts (1046Hz -> 1318Hz)
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
@@ -129,32 +117,65 @@ class VoiceCoachService {
   }
 
   /**
-   * Browser SpeechSynthesis completely disabled per user requirement.
-   * All voice guidance and conversational pacing is handled exclusively by Bolna AI Agent (FRIDAY).
-   */
-  public speak(_text: string, _force: boolean = false) {
-    // Disabled: Bolna AI Agent FRIDAY handles all voice
-    return;
-  }
-
-  /**
-   * Callback helper - resolves immediately since browser voice is replaced by Bolna.
-   */
-  public speakWithCallback(_text: string, onEnd?: () => void) {
-    if (onEnd) onEnd();
-  }
-
-  /**
-   * Immediately stops any speech in progress
+   * Immediately stops any pending speech or audio
    */
   public stop() {
-    if (this.synth) {
-      this.synth.cancel();
-    }
+    // Bolna voice is managed by WebRTC call session
   }
 
   /**
-   * Prescriptive Pace Alert Voice Trigger
+   * Real-time 100m Camera Proximity Voice Alert:
+   * Plays the radar chime and delegates voice alerting 100% to Bolna Voice AI Agent.
+   * Bolna's LLM agent fetches live telemetry and generates dynamic warning in real time.
+   */
+  public triggerCameraNearby100m(cameraName: string, limit: number, dist_m: number, speed_kmh?: number) {
+    if (this.isMuted) return;
+    this.playAlertChime('pre_alert');
+    bolnaVoiceService.triggerAgentSituation('camera_100m', {
+      camera_nearby: cameraName,
+      speed_kmh: speed_kmh,
+      limit_kmh: limit,
+      distance_to_camera_m: dist_m,
+      language: this.currentLanguage
+    });
+  }
+
+  /**
+   * Camera Field of View (FOV) Spot Speed Violation Voice Alert:
+   * Plays urgent radar chime and triggers Bolna Voice AI Agent.
+   */
+  public triggerSpotChallan(cameraName: string, speed: number, limit: number) {
+    if (this.isMuted) return;
+    this.playAlertChime('red');
+    bolnaVoiceService.triggerAgentSituation('spot_violation', {
+      camera_nearby: cameraName,
+      speed_kmh: speed,
+      limit_kmh: limit,
+      alert: 'red',
+      challan_risk: 'High Risk - Instant Spot Camera Violation',
+      language: this.currentLanguage
+    });
+  }
+
+  /**
+   * Average Speed Violation Voice Alert across an enforcement zone:
+   * Plays urgent chime and triggers Bolna Voice AI Agent.
+   */
+  public triggerSpeedChallan(sectionName: string, avgSpeed: number, limit: number) {
+    if (this.isMuted) return;
+    this.playAlertChime('red');
+    bolnaVoiceService.triggerAgentSituation('speed_violation', {
+      camera_nearby: sectionName,
+      speed_kmh: avgSpeed,
+      limit_kmh: limit,
+      alert: 'red',
+      challan_risk: 'High Risk - Average Speed Corridor Violation',
+      language: this.currentLanguage
+    });
+  }
+
+  /**
+   * Prescriptive Pace Alert Voice Trigger (Green / Amber / Red shift)
    */
   public triggerPaceAlert(
     alert: AlertLevel,
@@ -163,96 +184,77 @@ class VoiceCoachService {
     limit: number,
     state: string
   ) {
+    if (this.isMuted) return;
     this.playAlertChime(alert);
-
-    if (state === 'done') {
-      if (alert === 'green') {
-        const text =
-          this.currentLanguage === 'english'
-            ? 'Section completed legally. Safe average speed maintained. Zero challan!'
-            : 'Section safe complete hua! Average speed safe limit me hai. No challan!';
-        this.speak(text, true);
-      } else {
-        const text =
-          this.currentLanguage === 'english'
-            ? 'Section completed. Warning, average speed exceeded the legal threshold.'
-            : 'Section complete hua. Warning, average speed limit se zyada rahi.';
-        this.speak(text, true);
-      }
-      return;
-    }
-
-    if (alert === 'red' && ceiling !== null) {
-      const text =
-        this.currentLanguage === 'english'
-          ? `Slow down! Speed is ${Math.round(speed)}. Maximum safe ceiling is ${Math.round(ceiling)} kilometers per hour.`
-          : `Speed kam karein! Aap ${Math.round(speed)} pe hain. Legal ceiling ${Math.round(ceiling)} km/h hai.`;
-      this.speak(text);
-    } else if (alert === 'amber' && ceiling !== null) {
-      const text =
-        this.currentLanguage === 'english'
-          ? `Caution. Speed ${Math.round(speed)} is near the ${Math.round(ceiling)} ceiling. Maintain pace.`
-          : `Dhyan deinge. Speed ${Math.round(speed)} ceiling ${Math.round(ceiling)} ke paas hai. Dhere rakhein.`;
-      this.speak(text);
-    }
+    bolnaVoiceService.triggerAgentSituation('speed_alert', {
+      speed_kmh: speed,
+      ceiling_kmh: ceiling,
+      limit_kmh: limit,
+      alert: alert,
+      situation_notes: state === 'done' ? 'Section completed legally' : undefined,
+      language: this.currentLanguage
+    });
   }
 
   /**
-   * Checkpoint Warning Voice Trigger
-   * Plays the appropriate chime + speaks the prescriptive ceiling warning.
+   * Checkpoint Warning Voice Trigger:
+   * Evaluated dynamically by Bolna Voice AI Agent.
    */
-  public triggerCheckpointWarning(warning: CheckpointWarning) {
+  public triggerCheckpointWarning(warning: CheckpointWarning, speed_kmh?: number, limit_kmh?: number) {
     if (this.isMuted) return;
 
-    // Pick chime based on urgency
     const chimeMap: Record<string, AlertLevel | 'pre_alert'> = {
       critical: 'red',
       warn: 'red',
       caution: 'amber',
       ok: 'green',
-      done: 'pre_alert',
+      done: 'pre_alert'
     };
     this.playAlertChime(chimeMap[warning.urgency] ?? 'amber');
 
-    const text = getWarningVoiceText(warning, this.currentLanguage);
-    // Always force-speak checkpoint warnings (they fire at most 4 times per ride)
-    setTimeout(() => this.speak(text, true), 600);
+    bolnaVoiceService.triggerAgentSituation('checkpoint', {
+      checkpoint_index: warning.checkpoint,
+      checkpoint_name: `Checkpoint ${warning.checkpoint} (${warning.percent}%)`,
+      speed_kmh: speed_kmh ?? warning.currentAvg_kmh,
+      limit_kmh: limit_kmh ?? (warning.ceiling_kmh ?? 70),
+      ceiling_kmh: warning.ceiling_kmh,
+      current_avg_kmh: warning.currentAvg_kmh,
+      banked_time_s: warning.banked_time_s,
+      remaining_m: warning.remaining_m,
+      alert: warning.urgency === 'critical' ? 'red' : warning.urgency === 'caution' ? 'amber' : 'green',
+      language: this.currentLanguage
+    });
   }
 
   /**
-   * Camera 15m Field of View (FOV) Spot Speed Violation Voice Alert
+   * Delegates speech directly to Bolna Voice AI Agent in real time.
    */
-  public triggerSpotChallan(cameraName: string, speed: number, limit: number) {
-    this.playAlertChime('red');
-    const text =
-      this.currentLanguage === 'english'
-        ? `Warning! High risk of spot challan at ${cameraName}! Instant speed recorded was ${Math.round(speed)} in a ${limit} km/h zone. Risk of challan detected in this camera region!`
-        : `Dhyan deinge! ${cameraName} par spot challan risk detect hua! Instant speed ${Math.round(speed)} km/h limit se zyada hai. Is region mein challan ka risk hai!`;
-    this.speak(text, true);
+  public speak(text: string, _force?: boolean) {
+    if (this.isMuted) return;
+    bolnaVoiceService.triggerAgentSituation('status_update', {
+      situation_notes: text,
+      language: this.currentLanguage
+    });
   }
 
-  /**
-   * Average Speed Violation Voice Alert across an enforcement zone
-   */
-  public triggerSpeedChallan(sectionName: string, avgSpeed: number, limit: number) {
-    this.playAlertChime('red');
-    const text =
-      this.currentLanguage === 'english'
-        ? `Average speed violation in ${sectionName}! Section average was ${Math.round(avgSpeed)} in a ${limit} km/h zone. High risk of speed challan in this region!`
-        : `Dhyan deinge! ${sectionName} section mein average speed limit cross hui! Average speed ${Math.round(avgSpeed)} km/h thi. Is corridor mein speed challan ka high risk hai!`;
-    this.speak(text, true);
+  public speakWithCallback(text: string, onEnd?: () => void) {
+    this.speak(text);
+    if (onEnd) {
+      setTimeout(onEnd, 2500);
+    }
   }
 
   /**
    * Gantry Pre-alert (2km and 500m before gantry)
    */
   public triggerPreAlert(distanceText: string, gantryName: string) {
+    if (this.isMuted) return;
     this.playAlertChime('pre_alert');
-    const text =
-      this.currentLanguage === 'english'
-        ? `Attention: ${gantryName} enforcement camera ahead in ${distanceText}. Check your speed.`
-        : `Dhyan deinge: ${distanceText} mein ${gantryName} speed camera gantry aane wali hai.`;
-    this.speak(text, true);
+    bolnaVoiceService.triggerAgentSituation('camera_proximity', {
+      camera_nearby: gantryName,
+      situation_notes: `Upcoming enforcement camera ahead in ${distanceText}`,
+      language: this.currentLanguage
+    });
   }
 
   /**
@@ -264,12 +266,15 @@ class VoiceCoachService {
     nextName: string,
     nextLimit: number
   ) {
+    if (this.isMuted) return;
     this.playAlertChime('pre_alert');
-    const text =
-      this.currentLanguage === 'english'
-        ? `Section cleared with ${Math.round(avgSpeed)} kilometers per hour average speed. Entering next section: ${nextName}. Legal limit is ${nextLimit} kilometers per hour.`
-        : `Section safe clear hua! Average speed ${Math.round(avgSpeed)} km/h rahi. Next section start ho raha hai: ${nextName}. Speed limit ${nextLimit} km/h hai.`;
-    this.speak(text, true);
+    bolnaVoiceService.triggerAgentSituation('section_transition', {
+      camera_nearby: nextName,
+      speed_kmh: avgSpeed,
+      limit_kmh: nextLimit,
+      situation_notes: `Cleared ${clearedName} with ${Math.round(avgSpeed)} km/h average speed`,
+      language: this.currentLanguage
+    });
   }
 
   /**
@@ -281,28 +286,34 @@ class VoiceCoachService {
     cameraCount: number,
     hadChallan: boolean
   ) {
+    if (this.isMuted) return;
     this.playAlertChime(hadChallan ? 'amber' : 'green');
-    const text =
-      this.currentLanguage === 'english'
-        ? hadChallan
-          ? `Journey complete. Arrived at ${destName}. Total distance ${totalDistKm.toFixed(1)} kilometers, passed ${cameraCount} cameras. Notice: spot violation was flagged.`
-          : `Journey successfully completed! Arrived at ${destName}. Total distance ${totalDistKm.toFixed(1)} kilometers across ${cameraCount} ANPR cameras with zero challans!`
-        : hadChallan
-          ? `Journey complete! ${destName} pohach gaye. Total distance ${totalDistKm.toFixed(1)} km. Sabhi ${cameraCount} cameras cross hue. Ek spot violation hui hai.`
-          : `Safalta se pohach gaye ${destName}! Total distance ${totalDistKm.toFixed(1)} km. Sabhi ${cameraCount} cameras safe clear hue with zero challan!`;
-    this.speak(text, true);
+    bolnaVoiceService.triggerAgentSituation('journey_complete', {
+      camera_nearby: destName,
+      covered_m: totalDistKm * 1000,
+      challan_risk: hadChallan ? 'Violation Flagged on Route' : 'Zero Challan - Safe Journey',
+      situation_notes: `Arrived at ${destName}. Distance ${totalDistKm.toFixed(1)} km across ${cameraCount} cameras`,
+      language: this.currentLanguage
+    });
   }
 
   /**
    * Route Planned Announcement
    */
-  public triggerRoutePlanned(originName: string, destName: string, cameraCount: number, totalDistKm: number) {
+  public triggerRoutePlanned(
+    originName: string,
+    destName: string,
+    cameraCount: number,
+    totalDistKm: number
+  ) {
+    if (this.isMuted) return;
     this.playAlertChime('green');
-    const text =
-      this.currentLanguage === 'english'
-        ? `Route mapped from ${originName} to ${destName}. Total distance ${totalDistKm.toFixed(1)} kilometers with ${cameraCount} ANPR camera gantries.`
-        : `Route map ho gaya: ${originName} se ${destName}. Total distance ${totalDistKm.toFixed(1)} km, raaste mein ${cameraCount} camera gantries hain.`;
-    this.speak(text, false);
+    bolnaVoiceService.triggerAgentSituation('route_planned', {
+      camera_nearby: `${cameraCount} ANPR Cameras`,
+      remaining_m: totalDistKm * 1000,
+      situation_notes: `Route from ${originName} to ${destName}. Total ${totalDistKm.toFixed(1)} km with ${cameraCount} gantries`,
+      language: this.currentLanguage
+    });
   }
 }
 

@@ -1,0 +1,238 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="100%" height="100%" style="background:#080b12; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#111827" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#0b0f19" stop-opacity="0.98" />
+    </linearGradient>
+    
+    <!-- Glow Filters -->
+    <filter id="glowCyan" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="glowEmerald" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Grid Pattern -->
+  <g opacity="0.08">
+    <path d="M 0,0 L 1200,0 M 0,50 L 1200,50 M 0,100 L 1200,100 M 0,150 L 1200,150 M 0,200 L 1200,200 M 0,250 L 1200,250 M 0,300 L 1200,300 M 0,350 L 1200,350 M 0,400 L 1200,400 M 0,450 L 1200,450 M 0,500 L 1200,500 M 0,550 L 1200,550 M 0,600 L 1200,600 M 0,650 L 1200,650 M 0,700 L 1200,700 M 0,750 L 1200,750 M 0,800 L 1200,800" stroke="#06b6d4" stroke-width="1" />
+    <path d="M 0,0 L 0,820 M 50,0 L 50,820 M 100,0 L 100,820 M 150,0 L 150,820 M 200,0 L 200,820 M 250,0 L 250,820 M 300,0 L 300,820 M 350,0 L 350,820 M 400,0 L 400,820 M 450,0 L 450,820 M 500,0 L 500,820 M 550,0 L 550,820 M 600,0 L 600,820 M 650,0 L 650,820 M 700,0 L 700,820 M 750,0 L 750,820 M 800,0 L 800,820 M 850,0 L 850,820 M 900,0 L 900,820 M 950,0 L 950,820 M 1000,0 L 1000,820 M 1050,0 L 1050,820 M 1100,0 L 1100,820 M 1150,0 L 1150,820 M 1200,0 L 1200,820" stroke="#06b6d4" stroke-width="1" />
+  </g>
+
+  <!-- Header Section -->
+  <g transform="translate(60, 45)">
+    <rect x="0" y="0" width="46" height="46" rx="14" fill="url(#cyanGrad)" filter="url(#glowCyan)"/>
+    <text x="23" y="30" font-size="22" font-weight="900" fill="#ffffff" text-anchor="middle">V</text>
+    <text x="62" y="24" font-size="24" font-weight="900" fill="#ffffff" letter-spacing="0.5">VELO AI <tspan fill="#06b6d4" font-weight="400"> // SYSTEM ARCHITECTURE</tspan></text>
+    <text x="62" y="44" font-size="13" font-weight="500" fill="#9ca3af">Voice-First Automotive Pace Engine &amp; ANPR Speed Enforcement Co-Pilot</text>
+    
+    <!-- YC Stage Pill -->
+    <rect x="940" y="8" width="140" height="30" rx="15" fill="#1e293b" stroke="#334155" stroke-width="1" />
+    <circle cx="958" cy="23" r="5" fill="#10b981" />
+    <text x="972" y="28" font-size="11" font-weight="700" fill="#e2e8f0" letter-spacing="0.5">PRODUCTION V2.0</text>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 1: CLIENT COCKPIT & NAVIGATION (LEFT TOP) -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 115)">
+    <rect x="0" y="0" width="510" height="310" rx="20" fill="url(#cardBg)" stroke="#06b6d4" stroke-opacity="0.4" stroke-width="1.5" />
+    <rect x="0" y="0" width="510" height="42" rx="20" fill="#162235" fill-opacity="0.8" />
+    <circle cx="24" cy="21" r="5" fill="#06b6d4" />
+    <text x="38" y="26" font-size="13" font-weight="800" fill="#38bdf8" letter-spacing="1">1. COCKPIT INTERACTION &amp; HUD LAYER (REACT 19 + VITE)</text>
+
+    <!-- Sub-blocks -->
+    <g transform="translate(20, 58)">
+      <!-- Box 1A -->
+      <rect x="0" y="0" width="225" height="105" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="14" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Dynamic Navigation HUD</text>
+      <text x="14" y="44" font-size="10.5" fill="#94a3b8">• Google Maps Nav Banner UI</text>
+      <text x="14" y="62" font-size="10.5" fill="#94a3b8">• Continuous 10Hz Vehicle Lerp</text>
+      <text x="14" y="80" font-size="10.5" fill="#94a3b8">• 4-Level Checkpoint Stepper</text>
+      <text x="14" y="98" font-size="10.5" fill="#38bdf8">• Live Speedometer &amp; FOV Radar</text>
+
+      <!-- Box 1B -->
+      <rect x="245" y="0" width="225" height="105" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="14" y="24" font-size="12" font-weight="700" fill="#e2e8f0">Spatial GIS &amp; Leaflet Engine</text>
+      <text x="14" y="44" font-size="10.5" fill="#94a3b8">• OpenStreetMap Road Graph</text>
+      <text x="14" y="62" font-size="10.5" fill="#94a3b8">• Cross-Track Error Snapping (&lt;85m)</text>
+      <text x="14" y="80" font-size="10.5" fill="#94a3b8">• Curvature vs Displacement (+12%)</text>
+      <text x="14" y="98" font-size="10.5" fill="#38bdf8">• Geolocation GPS + Simulated Modes</text>
+
+      <!-- Box 1C: WebRTC Voice Interface -->
+      <rect x="0" y="118" width="470" height="115" rx="12" fill="#0f172a" stroke="#06b6d4" stroke-opacity="0.3" stroke-width="1"/>
+      <text x="16" y="26" font-size="12" font-weight="800" fill="#38bdf8">Bolna WebRTC Voice Controller (@bolna/web-call)</text>
+      <text x="16" y="48" font-size="11" fill="#cbd5e1">Two-Way Hands-Free Full-Duplex Audio · Zero Call Drop Guard</text>
+      <rect x="16" y="60" width="135" height="42" rx="8" fill="#1e293b" />
+      <text x="24" y="78" font-size="10" font-weight="700" fill="#10b981">WebRTC State Machine</text>
+      <text x="24" y="93" font-size="9" fill="#94a3b8">idle → connect → active</text>
+
+      <rect x="165" y="60" width="140" height="42" rx="8" fill="#1e293b" />
+      <text x="173" y="78" font-size="10" font-weight="700" fill="#38bdf8">Live Audio Visualizer</text>
+      <text x="173" y="93" font-size="9" fill="#94a3b8">Volume subscriber (0..1)</text>
+
+      <rect x="320" y="60" width="135" height="42" rx="8" fill="#1e293b" />
+      <text x="328" y="78" font-size="10" font-weight="700" fill="#f59e0b">Auto-Recovery SIP</text>
+      <text x="328" y="93" font-size="9" fill="#94a3b8">Single User-Gesture Start</text>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 2: MATHEMATICAL PACE ENGINE (RIGHT TOP) -->
+  <!-- ========================================================================= -->
+  <g transform="translate(630, 115)">
+    <rect x="0" y="0" width="510" height="310" rx="20" fill="url(#cardBg)" stroke="#10b981" stroke-opacity="0.4" stroke-width="1.5" />
+    <rect x="0" y="0" width="510" height="42" rx="20" fill="#0d2920" fill-opacity="0.8" />
+    <circle cx="24" cy="21" r="5" fill="#10b981" />
+    <text x="38" y="26" font-size="13" font-weight="800" fill="#34d399" letter-spacing="1">2. MATHEMATICAL PACE &amp; ENFORCEMENT ENGINE (DUAL RADAR)</text>
+
+    <g transform="translate(20, 58)">
+      <!-- Equation Box -->
+      <rect x="0" y="0" width="470" height="85" rx="12" fill="#061c14" stroke="#059669" stroke-opacity="0.3" stroke-width="1"/>
+      <text x="16" y="22" font-size="11.5" font-weight="800" fill="#34d399">Dynamic Ceiling Formulation (Clock Skew &amp; Curvature Aware):</text>
+      <text x="16" y="44" font-family="Courier, monospace" font-size="11.5" fill="#a7f3d0">T_min = D_road / (V_limit · (1 - 0.04))   [4% Clock-Margin Buffer]</text>
+      <text x="16" y="64" font-family="Courier, monospace" font-size="11.5" fill="#a7f3d0">V_ceil = clamp( (D_rem / (T_min - t_elapsed)), 0, V_limit )</text>
+
+      <!-- Dual Challan Architecture -->
+      <rect x="0" y="98" width="225" height="135" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="14" y="22" font-size="11.5" font-weight="800" fill="#f87171">1. Spot Radar Defense</text>
+      <text x="14" y="40" font-size="10" fill="#94a3b8">FOV: -20m to +30m around gantry</text>
+      <text x="14" y="56" font-size="10" fill="#94a3b8">Detects: Instantaneous Crossing Speed</text>
+      <text x="14" y="74" font-size="10" fill="#cbd5e1">• Proactive 100m Voice Pre-Alert</text>
+      <text x="14" y="92" font-size="10" fill="#cbd5e1">• Instant Violation Log &amp; Map Pin</text>
+      <text x="14" y="112" font-size="9.5" font-weight="700" fill="#ef4444">Zero Rupee Fine Display (Risk Only)</text>
+
+      <rect x="245" y="98" width="225" height="135" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="14" y="22" font-size="11.5" font-weight="800" fill="#fbbf24">2. Sectional Average Defense</text>
+      <text x="14" y="40" font-size="10" fill="#94a3b8">Traversed Camera-to-Camera Section</text>
+      <text x="14" y="56" font-size="10" fill="#94a3b8">Detects: Average Sectional Pace (ANPR)</text>
+      <text x="14" y="74" font-size="10" fill="#cbd5e1">• 25%, 50%, 75%, 100% Checkpoints</text>
+      <text x="14" y="92" font-size="10" fill="#cbd5e1">• Banked Time Debt Elimination</text>
+      <text x="14" y="112" font-size="9.5" font-weight="700" fill="#10b981">100% Challan-Free Journey Guarantee</text>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 3: BACKEND TELEMETRY & DATA PLATFORM (LEFT BOTTOM) -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 455)">
+    <rect x="0" y="0" width="510" height="310" rx="20" fill="url(#cardBg)" stroke="#8b5cf6" stroke-opacity="0.4" stroke-width="1.5" />
+    <rect x="0" y="0" width="510" height="42" rx="20" fill="#201538" fill-opacity="0.8" />
+    <circle cx="24" cy="21" r="5" fill="#a855f7" />
+    <text x="38" y="26" font-size="13" font-weight="800" fill="#c084fc" letter-spacing="1">3. FASTAPI TELEMETRY &amp; GMDA ITMS BACKEND (PYTHON 3.13)</text>
+
+    <g transform="translate(20, 58)">
+      <rect x="0" y="0" width="225" height="110" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="14" y="22" font-size="11.5" font-weight="700" fill="#e2e8f0">Real-Time Sync Engine</text>
+      <text x="14" y="42" font-size="10.5" fill="#94a3b8">POST /api/telemetry/live</text>
+      <text x="14" y="60" font-size="10" fill="#cbd5e1">• Sub-50ms Telemetry Stream</text>
+      <text x="14" y="76" font-size="10" fill="#cbd5e1">• Live Speed, Limit &amp; Camera State</text>
+      <text x="14" y="94" font-size="10" fill="#c084fc">• Session Store State Isolation</text>
+
+      <rect x="245" y="0" width="225" height="110" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="14" y="22" font-size="11.5" font-weight="700" fill="#e2e8f0">GMDA ITMS Dataset</text>
+      <text x="14" y="42" font-size="10.5" fill="#94a3b8">70+ Calibrated Gantry Nodes</text>
+      <text x="14" y="60" font-size="10" fill="#cbd5e1">• Shankar Chowk, Signature Tower</text>
+      <text x="14" y="76" font-size="10" fill="#cbd5e1">• Rajiv Chowk, Kherki Daula, Sohna</text>
+      <text x="14" y="94" font-size="10" fill="#c084fc">• Centerline Vector Snapped</text>
+
+      <!-- Tool Provider Block -->
+      <rect x="0" y="122" width="470" height="110" rx="12" fill="#0f172a" stroke="#8b5cf6" stroke-opacity="0.3" stroke-width="1"/>
+      <text x="16" y="24" font-size="12" font-weight="800" fill="#c084fc">Bolna Function Tool Gateway (GET /api/live/status)</text>
+      <text x="16" y="44" font-size="10.5" fill="#94a3b8">Exposes live vehicle telemetry directly to Bolna AI Cloud through reverse tunnel</text>
+      
+      <rect x="16" y="56" width="438" height="48" rx="8" fill="#1e1833" />
+      <text x="26" y="76" font-family="Courier, monospace" font-size="10" fill="#e9d5ff">HTTP 200 { speed: "92 km/h", limit: "70 km/h", camera: "100m", risk: "safe" }</text>
+      <text x="26" y="94" font-size="9" fill="#a855f7">✓ Zero Stale Data Guarantee · Evaluated instantly on LLM tool trigger</text>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 4: BOLNA VOICE AI INFRASTRUCTURE (RIGHT BOTTOM) -->
+  <!-- ========================================================================= -->
+  <g transform="translate(630, 455)">
+    <rect x="0" y="0" width="510" height="310" rx="20" fill="url(#cardBg)" stroke="#f59e0b" stroke-opacity="0.4" stroke-width="1.5" />
+    <rect x="0" y="0" width="510" height="42" rx="20" fill="#2d1c08" fill-opacity="0.8" />
+    <circle cx="24" cy="21" r="5" fill="#f59e0b" />
+    <text x="38" y="26" font-size="13" font-weight="800" fill="#fbbf24" letter-spacing="1">4. BOLNA VOICE AI &amp; FRIDAY CO-PILOT INFRASTRUCTURE</text>
+
+    <g transform="translate(20, 58)">
+      <!-- Audio Pipeline Flow -->
+      <rect x="0" y="0" width="145" height="110" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#fef08a">1. Deepgram Nova-3</text>
+      <text x="12" y="38" font-size="9.5" fill="#94a3b8">Real-Time Streaming ASR</text>
+      <text x="12" y="58" font-size="9.5" fill="#cbd5e1">• Latency: &lt;150ms</text>
+      <text x="12" y="74" font-size="9.5" fill="#cbd5e1">• VAD Silence Trim</text>
+      <text x="12" y="92" font-size="9.5" fill="#f59e0b">• Hinglish + English</text>
+
+      <rect x="160" y="0" width="150" height="110" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#fef08a">2. Azure GPT-4o-mini</text>
+      <text x="12" y="38" font-size="9.5" fill="#94a3b8">Autonomous Agent Flow</text>
+      <text x="12" y="58" font-size="9.5" fill="#cbd5e1">• FRIDAY Co-Pilot Persona</text>
+      <text x="12" y="74" font-size="9.5" fill="#cbd5e1">• Calls get_live_telemetry</text>
+      <text x="12" y="92" font-size="9.5" fill="#f59e0b">• 3600s Continuous Call</text>
+
+      <rect x="325" y="0" width="145" height="110" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+      <text x="12" y="22" font-size="11" font-weight="700" fill="#fef08a">3. ElevenLabs Turbo</text>
+      <text x="12" y="38" font-size="9.5" fill="#94a3b8">Neural Voice Synthesis</text>
+      <text x="12" y="58" font-size="9.5" fill="#cbd5e1">• Voice: Angelica</text>
+      <text x="12" y="74" font-size="9.5" fill="#cbd5e1">• 220-byte Audio Chunks</text>
+      <text x="12" y="92" font-size="9.5" fill="#f59e0b">• Natural In-Car Audio</text>
+
+      <!-- Local Proactive Alert Engine -->
+      <rect x="0" y="122" width="470" height="110" rx="12" fill="#0f172a" stroke="#f59e0b" stroke-opacity="0.3" stroke-width="1"/>
+      <text x="16" y="24" font-size="12" font-weight="800" fill="#fbbf24">Dual-Engine Voice Delivery Architecture</text>
+      <text x="16" y="44" font-size="10" fill="#94a3b8">Two voice conduits work in harmony to prevent missed safety alerts while driving:</text>
+
+      <rect x="16" y="56" width="210" height="50" rx="8" fill="#1e1b12" />
+      <text x="24" y="74" font-size="10.5" font-weight="700" fill="#fef08a">Converse: Bolna Cloud AI</text>
+      <text x="24" y="92" font-size="9" fill="#cbd5e1">Two-way natural conversation on user query</text>
+
+      <rect x="240" y="56" width="214" height="50" rx="8" fill="#1e1b12" />
+      <text x="248" y="74" font-size="10.5" font-weight="700" fill="#34d399">Proactive: Zero-Latency Engine</text>
+      <text x="248" y="92" font-size="9" fill="#cbd5e1">Instant 100m camera &amp; spot speed radar warnings</text>
+    </g>
+  </g>
+
+  <!-- Connective Arrows & Data Flow Badges -->
+  <g stroke="#06b6d4" stroke-width="2" opacity="0.6" stroke-dasharray="4,4">
+    <!-- Top Horizontal Data Link -->
+    <line x1="570" y1="230" x2="630" y2="230" />
+    <!-- Bottom Horizontal Data Link -->
+    <line x1="570" y1="610" x2="630" y2="610" />
+    <!-- Left Vertical Data Link -->
+    <line x1="315" y1="425" x2="315" y2="455" />
+    <!-- Right Vertical Data Link -->
+    <line x1="885" y1="425" x2="885" y2="455" />
+  </g>
+
+  <!-- Flow Badges in the center -->
+  <g transform="translate(565, 218)">
+    <circle cx="15" cy="12" r="14" fill="#0f172a" stroke="#06b6d4" stroke-width="1.5" />
+    <text x="15" y="16" font-size="10" font-weight="bold" fill="#06b6d4" text-anchor="middle">⇄</text>
+  </g>
+  <g transform="translate(565, 598)">
+    <circle cx="15" cy="12" r="14" fill="#0f172a" stroke="#f59e0b" stroke-width="1.5" />
+    <text x="15" y="16" font-size="10" font-weight="bold" fill="#f59e0b" text-anchor="middle">⇄</text>
+  </g>
+</svg>

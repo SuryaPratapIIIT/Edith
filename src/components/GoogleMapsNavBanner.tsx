@@ -101,14 +101,11 @@ export const GoogleMapsNavBanner: React.FC<GoogleMapsNavBannerProps> = ({
                   {activeCheckpointIndex ? `Checkpoint ${activeCheckpointIndex} of 4 (${activeCheckpointIndex * 25}%)` : 'Zone Pacing In Progress'}
                 </span>
                 <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
-                  🛣️ ROAD DISTANCE: {(activeZone.length_m / 1000).toFixed(2)} km
-                </span>
-                <span className="text-[10px] font-mono text-gray-400 hidden sm:inline">
-                  (Displacement: {(activeZone.displacement_m / 1000).toFixed(2)} km · +{activeZone.detourPct}% Curvature)
+                  {(activeZone.length_m / 1000).toFixed(2)} km Zone
                 </span>
               </div>
               <p className="text-sm font-mono font-bold text-gray-100 truncate mt-0.5">
-                {activeZone.name} · Tracking strictly along road network curvature
+                {activeZone.name} · Real-time camera pace monitoring
               </p>
             </div>
           ) : navMode === 'destination_reached' ? (
@@ -117,7 +114,7 @@ export const GoogleMapsNavBanner: React.FC<GoogleMapsNavBannerProps> = ({
                 DESTINATION ARRIVED
               </span>
               <p className="text-sm font-mono font-bold text-emerald-200 truncate mt-0.5">
-                {destinationName} · All {(journey.totalDistance_m / 1000).toFixed(1)} km Road Distance Completed!
+                {destinationName} · All {(journey.totalDistance_m / 1000).toFixed(1)} km Completed!
               </p>
             </div>
           ) : (
@@ -127,21 +124,18 @@ export const GoogleMapsNavBanner: React.FC<GoogleMapsNavBannerProps> = ({
                   NORMAL ROUTING
                 </span>
                 <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
-                  🛣️ ROAD NETWORK: {(journey.totalDistance_m / 1000).toFixed(1)} km
-                </span>
-                <span className="text-[10px] font-mono text-gray-400 hidden sm:inline">
-                  (Straight: {(journey.straightDisplacement_m / 1000).toFixed(1)} km · +{journey.detourPct}% Curvature Detour)
+                  {(journey.totalDistance_m / 1000).toFixed(1)} km Route
                 </span>
               </div>
               <p className="text-sm font-mono font-bold text-gray-200 truncate mt-0.5">
                 {nextCamera ? (
                   <>
                     Next Camera: <span className="text-cyan-300">{nextCamera.name}</span> in{' '}
-                    <strong className="text-white">{(distToNextCamera_m / 1000).toFixed(1)} km road distance</strong>
+                    <strong className="text-white">{(distToNextCamera_m / 1000).toFixed(1)} km</strong>
                   </>
                 ) : (
                   <>
-                    Continuing to <span className="text-emerald-300">{destinationName}</span> ({(distToDestination_m / 1000).toFixed(1)} km remaining along road)
+                    Continuing to <span className="text-emerald-300">{destinationName}</span> ({(distToDestination_m / 1000).toFixed(1)} km remaining)
                   </>
                 )}
               </p>

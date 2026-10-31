@@ -2,9 +2,16 @@
  * Bolna Voice AI Agent Service (FRIDAY)
  * Connects directly to Bolna's WebRTC Voice Agent using @bolna/web-call.
  * Provides two-way hands-free natural conversational voice with low-latency audio.
+ *
+ * Real-time interface telemetry is continuously synced directly to the backend
+ * so FRIDAY accesses 100% fresh, live vehicle data on every single turn (zero second voice).
+ *
+ * Supports call termination from Friday's end when the driver says:
+ * "cut the call friday", "hangup", "end this session", "disconnect", or "call end kar do".
  */
 
 import { BolnaWebCall, CallState, CallError } from '@bolna/web-call';
+import { VoiceLanguage } from '../types/pace';
 
 export interface BolnaTelemetryContext {
   route_id?: string;
@@ -26,6 +33,7 @@ export interface BolnaTelemetryContext {
 export type BolnaStateListener = (state: CallState) => void;
 export type BolnaVolumeListener = (volume: number) => void;
 export type BolnaErrorListener = (error: string | null) => void;
+export type BolnaAgentSpeechListener = (text: string, eventType: string) => void;
 
 class BolnaVoiceService {
   private call: BolnaWebCall | null = null;
@@ -37,6 +45,12 @@ class BolnaVoiceService {
   private stateListeners: Set<BolnaStateListener> = new Set();
   private volumeListeners: Set<BolnaVolumeListener> = new Set();
   private errorListeners: Set<BolnaErrorListener> = new Set();
+  private speechListeners: Set<BolnaAgentSpeechListener> = new Set();
+
+  private userMicStream: MediaStream | null = null;
+  private lastTriggerTime: number = 0;
+  private lastTriggerEvent: string = '';
+  private hangupPollTimer: any = null;
 
   /**
    * Current connection state
@@ -97,6 +111,16 @@ class BolnaVoiceService {
     };
   }
 
+  /**
+   * Subscribe to Bolna Agent spoken events (for UI subtitles / alerts)
+   */
+  public subscribeSpeech(listener: BolnaAgentSpeechListener): () => void {
+    this.speechListeners.add(listener);
+    return () => {
+      this.speechListeners.delete(listener);
+    };
+  }
+
   private notifyState(newState: CallState) {
     this.state = newState;
     this.stateListeners.forEach((l) => l(newState));
@@ -112,14 +136,21 @@ class BolnaVoiceService {
     this.errorListeners.forEach((l) => l(err));
   }
 
+  private notifySpeech(text: string, eventType: string) {
+    this.speechListeners.forEach((l) => l(text, eventType));
+  }
+
   /**
-   * Start 2-way WebRTC voice conversation with Bolna Voice Agent (FRIDAY)
-   * Must be called in response to a user click gesture to allow audio playback & mic permission.
+   * Start hands-free WebRTC voice conversation with Bolna Voice Agent (FRIDAY).
+   * Voice is 100% handled by Bolna with zero synthetic second voices.
    */
   public async startCall(context?: BolnaTelemetryContext): Promise<void> {
     if (this.state === 'active' || this.state === 'connecting' || this.state === 'ringing') {
       return;
     }
+
+    // Reset any previous hangup signal on the backend
+    fetch('/api/bolna/reset-hangup', { method: 'POST' }).catch(() => {});
 
     this.notifyError(null);
     this.notifyState('connecting');
@@ -154,9 +185,12 @@ class BolnaVoiceService {
       this.call.on('call-start', () => {
         this.notifyState('active');
         this.notifyError(null);
+        // Begin monitoring for hangup requests from Friday's end
+        this.startHangupWatcher();
       });
 
       this.call.on('call-end', () => {
+        this.stopHangupWatcher();
         this.notifyState('ended');
         this.notifyVolume(0);
         setTimeout(() => {
@@ -175,6 +209,7 @@ class BolnaVoiceService {
         const msg = err.message || `Bolna error: ${err.code}`;
         this.notifyError(msg);
         this.notifyState('idle');
+        this.stopHangupWatcher();
       });
 
       await this.call.start();
@@ -182,6 +217,7 @@ class BolnaVoiceService {
       console.error('[Bolna Start Exception]:', err);
       this.notifyError(err.message || 'Failed to connect to Bolna Voice Agent');
       this.notifyState('idle');
+      this.stopHangupWatcher();
     }
   }
 
@@ -189,6 +225,7 @@ class BolnaVoiceService {
    * Terminate active call with Bolna
    */
   public async stopCall(): Promise<void> {
+    this.stopHangupWatcher();
     if (this.call) {
       try {
         await this.call.stop();
@@ -198,6 +235,10 @@ class BolnaVoiceService {
         this.call = null;
         this.notifyState('idle');
         this.notifyVolume(0);
+        if (this.userMicStream) {
+          this.userMicStream.getTracks().forEach((t) => t.stop());
+          this.userMicStream = null;
+        }
       }
     } else {
       this.notifyState('idle');
@@ -213,6 +254,157 @@ class BolnaVoiceService {
       this.call.setMuted(this.isMuted);
     }
     return this.isMuted;
+  }
+
+  /**
+   * Polls the backend to detect when Friday triggers the `hangup_call` tool.
+   * When Friday decides to cut the call (e.g., driver says "cut the call friday"),
+   * this watcher cleanly terminates the WebRTC session from Friday's end.
+   */
+  private startHangupWatcher() {
+    this.stopHangupWatcher();
+    this.hangupPollTimer = setInterval(async () => {
+      if (!this.isCallActive()) {
+        this.stopHangupWatcher();
+        return;
+      }
+      try {
+        const res = await fetch('/api/bolna/hangup-status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.hangup_requested) {
+            console.log('[Bolna Voice] Friday triggered hangup. Cutting call from Friday\'s end...');
+            this.stopHangupWatcher();
+            // Allow 1.4 seconds for Friday's closing statement to finish playing through speakers
+            setTimeout(async () => {
+              await this.stopCall();
+              fetch('/api/bolna/reset-hangup', { method: 'POST' }).catch(() => {});
+            }, 1400);
+          }
+        }
+      } catch (e) {
+        // Ignore polling errors
+      }
+    }, 350);
+  }
+
+  private stopHangupWatcher() {
+    if (this.hangupPollTimer) {
+      clearInterval(this.hangupPollTimer);
+      this.hangupPollTimer = null;
+    }
+  }
+
+  /**
+   * Syncs real-time interface telemetry to backend for Bolna AI Agent.
+   * Completely avoids any second voice or fake synthetic audio cues.
+   * Bolna AI Agent is the sole, exclusive voice co-pilot.
+   */
+  public async triggerAgentSituation(
+    eventType: string,
+    telemetryData?: {
+      speed_kmh?: number;
+      limit_kmh?: number;
+      covered_m?: number;
+      remaining_m?: number;
+      ceiling_kmh?: number | null;
+      current_avg_kmh?: number;
+      banked_time_s?: number;
+      alert?: string;
+      camera_nearby?: string;
+      distance_to_camera_m?: number;
+      checkpoint_index?: number;
+      checkpoint_name?: string;
+      test_case_id?: string;
+      situation_notes?: string;
+      language?: VoiceLanguage;
+      challan_risk?: string;
+      route_origin?: string;
+      route_destination?: string;
+      total_journey_m?: number;
+      journey_elapsed_s?: number;
+      total_cameras?: number;
+      cleared_cameras?: number;
+      challan_count?: number;
+    }
+  ): Promise<void> {
+    const now = Date.now();
+    // Throttle identical triggers within 2 seconds
+    if (this.lastTriggerEvent === eventType && now - this.lastTriggerTime < 2000) {
+      return;
+    }
+    this.lastTriggerEvent = eventType;
+    this.lastTriggerTime = now;
+
+    // 1. Sync live interface data to FastAPI backend immediately with zero caching
+    const payload = {
+      session_id: 'live_ride',
+      event_type: eventType,
+      speed_kmh: telemetryData?.speed_kmh ?? 70,
+      limit_kmh: telemetryData?.limit_kmh ?? 70,
+      covered_m: telemetryData?.covered_m ?? 0,
+      remaining_m: telemetryData?.remaining_m ?? 500,
+      ceiling_kmh: telemetryData?.ceiling_kmh,
+      current_avg_kmh: telemetryData?.current_avg_kmh,
+      banked_time_s: telemetryData?.banked_time_s,
+      alert: telemetryData?.alert ?? 'green',
+      next_camera: telemetryData?.camera_nearby ?? 'Upcoming Camera Gantry',
+      distance_to_camera_m: telemetryData?.distance_to_camera_m ?? 100,
+      checkpoint_index: telemetryData?.checkpoint_index,
+      checkpoint_name: telemetryData?.checkpoint_name,
+      test_case_id: telemetryData?.test_case_id,
+      situation_context: telemetryData?.situation_notes,
+      language: telemetryData?.language ?? 'hinglish',
+      challan_risk: telemetryData?.challan_risk ?? 'Zero Risk',
+      route_origin: telemetryData?.route_origin,
+      route_destination: telemetryData?.route_destination,
+      total_journey_m: telemetryData?.total_journey_m,
+      journey_elapsed_s: telemetryData?.journey_elapsed_s,
+      total_cameras: telemetryData?.total_cameras,
+      cleared_cameras: telemetryData?.cleared_cameras,
+      challan_count: telemetryData?.challan_count
+    };
+
+    fetch('/api/telemetry/live', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+
+    // 2. Query dynamic reasoning engine to keep UI subtitles updated in real time
+    try {
+      const analyzeRes = await fetch('/api/bolna/analyze-situation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          speed_kmh: telemetryData?.speed_kmh ?? 70,
+          limit_kmh: telemetryData?.limit_kmh ?? 70,
+          covered_m: telemetryData?.covered_m ?? 0,
+          remaining_m: telemetryData?.remaining_m ?? 500,
+          ceiling_kmh: telemetryData?.ceiling_kmh,
+          current_avg_kmh: telemetryData?.current_avg_kmh,
+          banked_time_s: telemetryData?.banked_time_s,
+          camera_nearby: telemetryData?.camera_nearby,
+          distance_to_camera_m: telemetryData?.distance_to_camera_m,
+          alert: telemetryData?.alert ?? 'green',
+          event_type: eventType,
+          checkpoint_index: telemetryData?.checkpoint_index,
+          checkpoint_name: telemetryData?.checkpoint_name,
+          test_case_id: telemetryData?.test_case_id,
+          situation_notes: telemetryData?.situation_notes,
+          language: telemetryData?.language ?? 'hinglish'
+        })
+      });
+
+      if (analyzeRes.ok) {
+        const data = await analyzeRes.json();
+        if (data.spoken_text) {
+          this.notifySpeech(data.spoken_text, eventType);
+        }
+      }
+    } catch (e) {
+      // Quiet background analysis
+    }
   }
 }
 

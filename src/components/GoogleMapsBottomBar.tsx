@@ -72,7 +72,7 @@ export const GoogleMapsBottomBar: React.FC<GoogleMapsBottomBarProps> = ({
     <div className="w-full bg-gray-950/95 backdrop-blur-xl border border-gray-800 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 font-mono">
       {/* Top Row: Navigation Trip Metrics & Playback Controls */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-gray-800/80 pb-3">
-        {/* Left: Google Maps ETA & Road Network Distance */}
+        {/* Left: ETA & Remaining Distance */}
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <div className="flex items-baseline gap-2">
@@ -80,23 +80,13 @@ export const GoogleMapsBottomBar: React.FC<GoogleMapsBottomBarProps> = ({
                 {remainingMinutes} min
               </span>
               <span className="text-xs text-gray-200 font-bold bg-gray-900 px-2 py-0.5 rounded-lg border border-gray-800 flex items-center gap-1">
-                🛣️ {(remainingDistance_m / 1000).toFixed(1)} km road distance left
+                {(remainingDistance_m / 1000).toFixed(1)} km left
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-gray-400 flex-wrap">
               <span>ETA {arrivalTime}</span>
               <span>•</span>
-              <span className="text-emerald-300 font-semibold">Real Road Curve ∫ds</span>
-              {straightDisplacement_m !== undefined && detourPct !== undefined && (
-                <>
-                  <span>•</span>
-                  <span className="text-gray-400 hidden sm:inline">
-                    Chord Disp: {(straightDisplacement_m / 1000).toFixed(1)} km (+{detourPct}% Road Detour)
-                  </span>
-                </>
-              )}
-              <span>•</span>
-              <span className="text-gray-300 truncate max-w-[200px]">To {destinationName}</span>
+              <span className="text-gray-300 truncate max-w-[240px]">Destination: {destinationName}</span>
             </div>
           </div>
         </div>
