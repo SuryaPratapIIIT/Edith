@@ -25,13 +25,12 @@
 
 ---
 
-<img src="docs/architecture.png" alt="VELO AI System Architecture" width="100%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
 
 </div>
 
 <br/>
 
-## 🚨 The Billion-Dollar Problem
+## The Billion-Dollar Problem
 
 ### Why Traditional Radar Apps Fail on Modern Expressways
 
@@ -48,7 +47,7 @@ If a driver cruises at **120 km/h** for the first 3 km of a 5 km (70 km/h limit)
 
 ---
 
-## ⚡ The VELO AI Solution
+##  The VELO AI Solution
 
 **VELO AI** is an intelligent, voice-first automotive co-pilot that continuously computes the driver’s **dynamic legal velocity ceiling** ($V_{\text{ceil}}$) in real time. Rather than issuing passive alarms after a violation has already occurred, VELO AI prescribes the exact maximum cruise speed required over the remaining section distance to guarantee a **100% challan-free journey**.
 
@@ -66,7 +65,7 @@ If a driver cruises at **120 km/h** for the first 3 km of a 5 km (70 km/h limit)
 
 ---
 
-## 📐 Mathematical Pace Engine
+##  Mathematical Pace Engine
 
 The core algorithmic engine computes travel time deficits and dynamic speed ceilings at 10 Hz across any arbitrary road geometry.
 
@@ -101,7 +100,7 @@ $$\text{Alert}(v) = \begin{cases}
 
 ---
 
-## 🛡️ Dual Challan Risk Radar
+##  Dual Challan Risk Radar
 
 VELO AI separates enforcement risk into two independent radar models, ensuring coverage across Indian expressways:
 
@@ -154,7 +153,7 @@ VELO AI integrates an enterprise automotive voice stack powered by **Bolna AI**:
 
 ---
 
-## 🗺️ GMDA ITMS Verified Camera Network
+##  GMDA ITMS Verified Camera Network
 
 Calibrated directly against OpenStreetMap highway centerlines across the National Capital Region (Gurugram):
 
@@ -176,7 +175,7 @@ Calibrated directly against OpenStreetMap highway centerlines across the Nationa
 
 ---
 
-## 🧪 Comprehensive Test Suite (36/36 Verified)
+##  Comprehensive Test Suite (36/36 Verified)
 
 VELO AI includes an exhaustive audit suite verifying mathematical edge cases against the engineering specification:
 
