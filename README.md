@@ -25,9 +25,7 @@
 
 ---
 
-
 </div>
-
 <br/>
 
 ## The Billion-Dollar Problem
@@ -129,13 +127,10 @@ VELO AI separates enforcement risk into two independent radar models, ensuring c
 
 ---
 
-## 🎙️ FRIDAY: Voice AI Co-Pilot
+## FRIDAY: Voice AI Co-Pilot
 
 VELO AI integrates an enterprise automotive voice stack powered by **Bolna AI**:
 
-<div align="center">
-  <img src="docs/architecture.svg" alt="VELO AI Vector Architecture" width="95%" />
-</div>
 
 ### Voice Architecture Pipeline
 1. **Audio Capture & WebRTC Transport:**
