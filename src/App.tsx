@@ -98,6 +98,7 @@ export default function App() {
   const [hasSpotChallan, setHasSpotChallan] = useState<boolean>(false);
   const spotChallanTriggeredRef = useRef<boolean>(false);
   const lastAlertLevelRef = useRef<AlertLevel>('green');
+  const lastTelemetrySyncTimeRef = useRef<number>(0);
 
   // Vehicle class and safety configs
   const [vehicleClass, setVehicleClass] = useState<VehicleClass>('car');
@@ -659,23 +660,18 @@ export default function App() {
         : 'Zero Challan Risk (Safe & Clean Record)'
   };
 
-  // Continuous Telemetry Sync to Backend: Keeps /api/live/status completely up to date for Bolna AI
+  // Continuous Telemetry Sync to Backend: Keeps /api/live/status completely fresh in real time for Bolna AI
   useEffect(() => {
-    const camLimit = nextCamera ? nextCamera.limit_kmh : postedLimit;
-    const speedMs = currentSpeedThrottle / 3.6;
-    const limitMs = camLimit / 3.6;
-    const reqDecel =
-      currentSpeedThrottle > camLimit && distToNextCamera_m > 0
-        ? Number((Math.max(0, (speedMs * speedMs - limitMs * limitMs) / (2 * Math.max(1, distToNextCamera_m)))).toFixed(2))
-        : 0;
+    const now = Date.now();
+    // Throttle updates to ~300ms to guarantee zero-lag real-time sync without socket flooding
+    if (now - lastTelemetrySyncTimeRef.current < 300) {
+      return;
+    }
+    lastTelemetrySyncTimeRef.current = now;
 
     const payload = {
       session_id: 'live_ride',
       section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
-      section_length_m: activeZone ? Math.round(activeZone.length_m) : 3450,
-      covered_in_zone_m: Math.round(coveredInZone_m),
-      remaining_in_zone_m: activeZone ? Math.max(0, Math.round(activeZone.length_m - coveredInZone_m)) : 0,
-      section_progress_percent: activeZone && activeZone.length_m > 0 ? Math.min(100, Math.round((coveredInZone_m / activeZone.length_m) * 100)) : 0,
       speed_kmh: Math.round(currentSpeedThrottle),
       limit_kmh: postedLimit,
       ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
@@ -685,13 +681,10 @@ export default function App() {
       remaining_m: Math.round(distToDestination_m),
       next_camera: nextCamera ? nextCamera.name : 'Upcoming GMDA ANPR Camera',
       distance_to_camera_m: Math.round(distToNextCamera_m),
-      required_deceleration_ms2: reqDecel,
       challan_risk:
         challanHistory.length > 0
           ? `High Challan Risk (${challanHistory.length} incident(s) in region)`
           : 'Zero Challan Risk (Clean Record)',
-      challan_count: challanHistory.length,
-      has_spot_challan: hasSpotChallan || challanHistory.some(c => c.type === 'spot_challan'),
       alert: currentPace.alert,
       language: voiceLanguage,
       route_origin: journey.origin.name,
@@ -700,35 +693,19 @@ export default function App() {
       journey_elapsed_s: Math.round(journeyElapsed_s),
       total_cameras: journey.cameras.length,
       cleared_cameras: journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length,
-      remaining_cameras: journey.cameras.filter(c => c.journeyDistance_m > journeyCovered_m).length,
-      checkpoint_index: activeCheckpointIndex,
-      checkpoint_name: activeCheckpointIndex ? `Checkpoint ${activeCheckpointIndex} (${activeCheckpointIndex * 25}%)` : null,
-      checkpoint_ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
-      checkpoint_exceeding: currentPace.max_avg_kmh !== null ? currentSpeedThrottle > currentPace.max_avg_kmh : currentSpeedThrottle > postedLimit,
-      vehicle_class: vehicleClass,
-      nav_mode: navMode,
-      turn_instruction: nextCamera ? `Next: ${nextCamera.name} in ${(distToNextCamera_m / 1000).toFixed(1)} km` : `Destination: ${journey.destination.name}`
+      challan_count: challanHistory.length
     };
 
-    const timer = setTimeout(() => {
-      fetch('/api/telemetry/live', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).catch(() => {});
-    }, 50);
-
-    return () => clearTimeout(timer);
+    fetch('/api/telemetry/live', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
   }, [
     journeyCovered_m,
     currentSpeedThrottle,
     postedLimit,
     activeZone,
-    coveredInZone_m,
-    activeCheckpointIndex,
-    hasSpotChallan,
-    vehicleClass,
-    navMode,
     nextCamera,
     distToNextCamera_m,
     distToDestination_m,
@@ -738,6 +715,58 @@ export default function App() {
     currentPace.currentAvg_kmh,
     currentPace.banked_time_s,
     voiceLanguage
+  ]);
+
+  // Heartbeat Telemetry Sync: Guarantees /api/live/status stays alive even when the vehicle is stationary
+  useEffect(() => {
+    const heartbeatTimer = setInterval(() => {
+      const payload = {
+        session_id: 'live_ride',
+        section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
+        speed_kmh: Math.round(currentSpeedThrottle),
+        limit_kmh: postedLimit,
+        ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
+        current_avg_kmh: Math.round(currentPace.currentAvg_kmh),
+        banked_time_s: Math.round(currentPace.banked_time_s),
+        covered_m: Math.round(journeyCovered_m),
+        remaining_m: Math.round(distToDestination_m),
+        next_camera: nextCamera ? nextCamera.name : 'Upcoming GMDA ANPR Camera',
+        distance_to_camera_m: Math.round(distToNextCamera_m),
+        challan_risk:
+          challanHistory.length > 0
+            ? `High Challan Risk (${challanHistory.length} incident(s) in region)`
+            : 'Zero Challan Risk (Clean Record)',
+        alert: currentPace.alert,
+        language: voiceLanguage,
+        route_origin: journey.origin.name,
+        route_destination: journey.destination.name,
+        total_journey_m: Math.round(journey.totalDistance_m),
+        journey_elapsed_s: Math.round(journeyElapsed_s),
+        total_cameras: journey.cameras.length,
+        cleared_cameras: journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length,
+        challan_count: challanHistory.length
+      };
+
+      fetch('/api/telemetry/live', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    }, 1000);
+
+    return () => clearInterval(heartbeatTimer);
+  }, [
+    activeZone,
+    currentSpeedThrottle,
+    postedLimit,
+    currentPace,
+    journeyCovered_m,
+    distToDestination_m,
+    nextCamera,
+    distToNextCamera_m,
+    challanHistory.length,
+    voiceLanguage,
+    journey
   ]);
 
   // Handle Play/Pause with automatic Bolna AI Agent (FRIDAY) session launch

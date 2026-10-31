@@ -51,7 +51,6 @@ class BolnaVoiceService {
   private lastTriggerTime: number = 0;
   private lastTriggerEvent: string = '';
   private hangupPollTimer: any = null;
-  private activeRunId: string | null = null;
 
   /**
    * Current connection state
@@ -184,7 +183,6 @@ class BolnaVoiceService {
       });
 
       this.call.on('call-start', () => {
-        this.activeRunId = this.call?.getRunId() || null;
         this.notifyState('active');
         this.notifyError(null);
         // Begin monitoring for hangup requests from Friday's end
@@ -192,7 +190,6 @@ class BolnaVoiceService {
       });
 
       this.call.on('call-end', () => {
-        this.activeRunId = null;
         this.stopHangupWatcher();
         this.notifyState('ended');
         this.notifyVolume(0);
@@ -303,6 +300,36 @@ class BolnaVoiceService {
    * Completely avoids any second voice or fake synthetic audio cues.
    * Bolna AI Agent is the sole, exclusive voice co-pilot.
    */
+  /**
+   * Proactive voice announcement matching the Friday persona.
+   * Plays the alert aloud directly to the driver's audio output (speakers/headphones)
+   * without injecting into the WebRTC microphone stream.
+   */
+  public speakProactiveVoiceAlert(text: string): void {
+    if (this.isMuted) return;
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      const voices = window.speechSynthesis.getVoices();
+      const fridayVoice = voices.find(v =>
+        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Female')) &&
+        !v.name.includes('David') && !v.name.includes('Male')
+      ) || voices[0];
+
+      if (fridayVoice) {
+        utterance.voice = fridayVoice;
+      }
+      utterance.rate = 1.05;
+      utterance.pitch = 1.05;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('[Bolna Voice Alert Error]:', e);
+    }
+  }
+
   public async triggerAgentSituation(
     eventType: string,
     telemetryData?: {
@@ -332,11 +359,17 @@ class BolnaVoiceService {
     }
   ): Promise<void> {
     const now = Date.now();
+    const throttleKey = eventType === 'checkpoint' 
+      ? `checkpoint_${telemetryData?.checkpoint_index}` 
+      : eventType === 'camera_100m'
+      ? `camera_100m_${telemetryData?.camera_nearby}`
+      : eventType;
+
     // Throttle identical triggers within 2 seconds
-    if (this.lastTriggerEvent === eventType && now - this.lastTriggerTime < 2000) {
+    if (this.lastTriggerEvent === throttleKey && now - this.lastTriggerTime < 2000) {
       return;
     }
-    this.lastTriggerEvent = eventType;
+    this.lastTriggerEvent = throttleKey;
     this.lastTriggerTime = now;
 
     // 1. Sync live interface data to FastAPI backend immediately with zero caching
@@ -374,29 +407,7 @@ class BolnaVoiceService {
       body: JSON.stringify(payload)
     }).catch(() => {});
 
-    // Forward event directly to active Bolna voice call execution if call is live
-    if (this.activeRunId) {
-      fetch('/api/bolna/call-event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          run_id: this.activeRunId,
-          event: eventType,
-          properties: {
-            event_type: eventType,
-            camera_nearby: telemetryData?.camera_nearby,
-            distance_to_camera_m: telemetryData?.distance_to_camera_m,
-            speed_kmh: telemetryData?.speed_kmh,
-            limit_kmh: telemetryData?.limit_kmh,
-            ceiling_kmh: telemetryData?.ceiling_kmh,
-            checkpoint_index: telemetryData?.checkpoint_index,
-            alert: telemetryData?.alert
-          }
-        })
-      }).catch(() => {});
-    }
-
-    // 2. Query dynamic reasoning engine to keep UI subtitles updated in real time
+    // 2. Query dynamic reasoning engine to keep UI subtitles updated and speak alert in real time
     try {
       const analyzeRes = await fetch('/api/bolna/analyze-situation', {
         method: 'POST',
@@ -425,6 +436,9 @@ class BolnaVoiceService {
         const data = await analyzeRes.json();
         if (data.spoken_text) {
           this.notifySpeech(data.spoken_text, eventType);
+          if (eventType === 'checkpoint' || eventType === 'camera_100m' || eventType === 'spot_violation' || eventType === 'speed_violation') {
+            this.speakProactiveVoiceAlert(data.spoken_text);
+          }
         }
       }
     } catch (e) {

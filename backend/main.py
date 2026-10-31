@@ -9,13 +9,12 @@ Provides:
   GET  /health                               – Liveness probe
 """
 from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
 import json
 import os
+import asyncio
 import httpx
 from pathlib import Path
 from typing import Optional
@@ -59,76 +58,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ─── Static Files & Frontend SPA Support ─────────────────────────────────────
-STATIC_CANDIDATES = [
-    Path(__file__).resolve().parent / "static",
-    Path(__file__).resolve().parent.parent / "dist",
-    Path("static"),
-    Path("dist"),
-    Path("backend/static"),
-]
-STATIC_DIR = next((p for p in STATIC_CANDIDATES if p.exists() and (p / "index.html").exists()), None)
-
-if STATIC_DIR and (STATIC_DIR / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-
-FALLBACK_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>VELO AI — Voice-First Pace Coach API</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0f19; color: #f3f4f6; margin: 0; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; }
-    .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 32px; max-width: 640px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-    h1 { color: #38bdf8; margin-top: 0; font-size: 24px; }
-    p { color: #9ca3af; line-height: 1.6; }
-    .badge { display: inline-block; background: #065f46; color: #34d399; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
-    .links { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
-    a { background: #1e293b; color: #38bdf8; text-decoration: none; padding: 10px 18px; border-radius: 8px; font-weight: 500; font-size: 14px; border: 1px solid #334155; transition: all 0.2s; }
-    a:hover { background: #334155; color: #fff; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="badge">● SERVICE OPERATIONAL</div>
-    <h1>VELO AI — Voice-First Pace Coach</h1>
-    <p>Real-time ANPR average-speed corridor coach & proactive camera proximity warning engine powered by Bolna Voice AI (FRIDAY).</p>
-    <div class="links">
-      <a href="/docs">Interactive Swagger Docs (/docs)</a>
-      <a href="/health">Health Check (/health)</a>
-      <a href="/api/live/status">Live Telemetry API (/api/live/status)</a>
-      <a href="/api/gantries">ANPR Gantries (/api/gantries)</a>
-    </div>
-  </div>
-</body>
-</html>"""
-
-@app.get("/")
-@app.head("/")
-def serve_root():
-    """Serve the React frontend or API dashboard status page."""
-    if STATIC_DIR and (STATIC_DIR / "index.html").exists():
-        return FileResponse(STATIC_DIR / "index.html")
-    return HTMLResponse(content=FALLBACK_HTML)
-
-@app.get("/favicon.ico")
-def serve_favicon():
-    if STATIC_DIR and (STATIC_DIR / "favicon.svg").exists():
-        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
-    return Response(status_code=204)
-
-@app.get("/favicon.svg")
-def serve_favicon_svg():
-    if STATIC_DIR and (STATIC_DIR / "favicon.svg").exists():
-        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
-    return Response(status_code=204)
-
-@app.get("/icons.svg")
-def serve_icons_svg():
-    if STATIC_DIR and (STATIC_DIR / "icons.svg").exists():
-        return FileResponse(STATIC_DIR / "icons.svg", media_type="image/svg+xml")
-    return Response(status_code=204)
 
 # ─── Verified GMDA NH-48 Gantry Dataset with JSON File Fallback ──────────────
 DEFAULT_GANTRIES = [
@@ -227,23 +156,13 @@ class LiveTelemetryPayload(BaseModel):
     limit_kmh: float
     covered_m: float
     remaining_m: float
-    section_length_m: Optional[float] = None
-    covered_in_zone_m: Optional[float] = None
-    remaining_in_zone_m: Optional[float] = None
-    section_progress_percent: Optional[float] = None
     next_camera: Optional[str] = None
     distance_to_camera_m: Optional[float] = None
-    estimated_time_to_camera: Optional[str] = None
-    required_deceleration_ms2: Optional[float] = None
     challan_risk: Optional[str] = "zero"
-    challan_count: Optional[int] = 0
-    has_spot_challan: Optional[bool] = False
     alert: Optional[str] = "green"
     event_type: Optional[str] = None
     checkpoint_index: Optional[int] = None
     checkpoint_name: Optional[str] = None
-    checkpoint_ceiling_kmh: Optional[float] = None
-    checkpoint_exceeding: Optional[bool] = None
     ceiling_kmh: Optional[float] = None
     current_avg_kmh: Optional[float] = None
     banked_time_s: Optional[float] = None
@@ -254,19 +173,9 @@ class LiveTelemetryPayload(BaseModel):
     route_destination: Optional[str] = "Destination"
     total_journey_m: Optional[float] = None
     journey_elapsed_s: Optional[float] = None
-    estimated_time_to_destination: Optional[str] = None
     total_cameras: Optional[int] = None
     cleared_cameras: Optional[int] = None
-    remaining_cameras: Optional[int] = None
-    vehicle_class: Optional[str] = "car"
-    nav_mode: Optional[str] = "normal_routing"
-    turn_instruction: Optional[str] = None
-
-
-class CallEventRequest(BaseModel):
-    run_id: str
-    event: str
-    properties: Optional[dict] = None
+    challan_count: Optional[int] = None
 
 
 class BolnaSessionRequest(BaseModel):
@@ -303,9 +212,31 @@ async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
             resp = await client.post(url, headers=headers, json=payload, timeout=12.0)
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=f"Bolna API error: {resp.text}")
-            return resp.json()
+            session_data = resp.json()
+            global active_bolna_run_id
+            active_bolna_run_id = session_data.get("run_id")
+            return session_data
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=f"Failed to reach Bolna API: {str(exc)}")
+
+active_bolna_run_id: Optional[str] = None
+
+async def push_bolna_event(event_name: str, properties: dict):
+    """Pushes real-time road/checkpoint/camera events into the active Bolna call."""
+    global active_bolna_run_id
+    if not active_bolna_run_id or not BOLNA_API_KEY:
+        return
+    try:
+        url = f"{BOLNA_API_URL.rstrip('/')}/v1/call/{active_bolna_run_id}/events"
+        headers = {
+            "Authorization": f"Bearer {BOLNA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        async with httpx.AsyncClient() as client:
+            await client.post(url, headers=headers, json={"event": event_name, "properties": properties}, timeout=2.5)
+    except Exception as e:
+        # Non-blocking telemetry event notification
+        pass
 
 @app.get("/health")
 def health():
@@ -394,7 +325,7 @@ def update_telemetry(session_id: str, ping: LocationTelemetry):
 
 
 @app.post("/api/telemetry/live")
-def update_live_telemetry(payload: LiveTelemetryPayload):
+async def update_live_telemetry(payload: LiveTelemetryPayload):
     """
     Syncs real-time ride telemetry from frontend so Bolna agent tools always get instant live data.
     """
@@ -413,67 +344,79 @@ def update_live_telemetry(payload: LiveTelemetryPayload):
     sess["limit_kmh"] = payload.limit_kmh
     sess["covered_m"] = payload.covered_m
     sess["remaining_m"] = payload.remaining_m
-    sess["section_length_m"] = payload.section_length_m if payload.section_length_m is not None else sess.get("section_length_m", payload.covered_m + payload.remaining_m)
-    sess["covered_in_zone_m"] = payload.covered_in_zone_m if payload.covered_in_zone_m is not None else sess.get("covered_in_zone_m", payload.covered_m)
-    sess["remaining_in_zone_m"] = payload.remaining_in_zone_m if payload.remaining_in_zone_m is not None else sess.get("remaining_in_zone_m", payload.remaining_m)
-    sess["section_progress_percent"] = payload.section_progress_percent if payload.section_progress_percent is not None else sess.get("section_progress_percent", 0)
     sess["ceiling_kmh"] = payload.ceiling_kmh if payload.ceiling_kmh is not None else payload.limit_kmh
     sess["alert"] = payload.alert or "green"
     sess["next_camera"] = payload.next_camera or "Upcoming GMDA Gantry"
     sess["distance_to_camera_m"] = payload.distance_to_camera_m if payload.distance_to_camera_m is not None else 0
-    sess["estimated_time_to_camera"] = payload.estimated_time_to_camera
-    sess["required_deceleration_ms2"] = payload.required_deceleration_ms2
     sess["challan_risk"] = payload.challan_risk or "zero"
-    sess["challan_count"] = payload.challan_count if payload.challan_count is not None else sess.get("challan_count", 0)
-    sess["has_spot_challan"] = payload.has_spot_challan if payload.has_spot_challan is not None else False
-    sess["event_type"] = payload.event_type
-    sess["checkpoint_index"] = payload.checkpoint_index
-    sess["checkpoint_name"] = payload.checkpoint_name
-    sess["checkpoint_ceiling_kmh"] = payload.checkpoint_ceiling_kmh
-    sess["checkpoint_exceeding"] = payload.checkpoint_exceeding
-    sess["current_avg_kmh"] = payload.current_avg_kmh
-    sess["banked_time_s"] = payload.banked_time_s
-    sess["test_case_id"] = payload.test_case_id
-    sess["situation_context"] = payload.situation_context
+
+    # Persistent Checkpoint Storage
+    if "checkpoints" not in sess:
+        sess["checkpoints"] = {}
+
+    if payload.checkpoint_index is not None or payload.event_type == "checkpoint":
+        cp_idx = payload.checkpoint_index or 1
+        ceiling = payload.ceiling_kmh if payload.ceiling_kmh is not None else payload.limit_kmh
+        is_exc = (payload.speed_kmh > ceiling) or (payload.speed_kmh > payload.limit_kmh) or (bool(payload.alert) and payload.alert.lower() in ["red", "danger", "violation", "critical"])
+        excess = max(0.0, round(payload.speed_kmh - ceiling, 1))
+
+        cp_record = {
+            "index": cp_idx,
+            "name": payload.checkpoint_name or f"Checkpoint {cp_idx}",
+            "speed_kmh": payload.speed_kmh,
+            "ceiling_kmh": ceiling,
+            "limit_kmh": payload.limit_kmh,
+            "is_exceeding": is_exc,
+            "excess_kmh": excess,
+            "current_avg_kmh": payload.current_avg_kmh or payload.speed_kmh,
+            "banked_time_s": payload.banked_time_s or 0.0,
+            "status_label": "EXCEEDING (Wrong Way / Overspeeding)" if is_exc else "NOT EXCEEDING (Right Way / Safe Pace)",
+            "advice": (
+                f"You crossed Checkpoint {cp_idx} at {payload.speed_kmh} km/h, EXCEEDING your safe ceiling of {ceiling} km/h by +{excess} km/h! "
+                f"You are doing it the wrong way. Slow down immediately to recover your banked time budget."
+                if is_exc else
+                f"You crossed Checkpoint {cp_idx} at {payload.speed_kmh} km/h. You are NOT exceeding your safe ceiling of {ceiling} km/h. "
+                f"You are doing it the right way! Safe pace maintained."
+            ),
+            "timestamp": time.time()
+        }
+        sess["checkpoints"][cp_idx] = cp_record
+        sess["latest_checkpoint"] = cp_record
+        sess["checkpoint_index"] = cp_idx
+        sess["checkpoint_name"] = cp_record["name"]
+        sess["event_type"] = "checkpoint"
+    elif payload.event_type is not None:
+        sess["event_type"] = payload.event_type
+
+    if payload.current_avg_kmh is not None:
+        sess["current_avg_kmh"] = payload.current_avg_kmh
+    if payload.banked_time_s is not None:
+        sess["banked_time_s"] = payload.banked_time_s
+    if payload.test_case_id is not None:
+        sess["test_case_id"] = payload.test_case_id
+    if payload.situation_context is not None:
+        sess["situation_context"] = payload.situation_context
     sess["language"] = payload.language or "hinglish"
     sess["route_origin"] = payload.route_origin or sess.get("route_origin", "Gurugram Origin")
     sess["route_destination"] = payload.route_destination or sess.get("route_destination", "Gurugram Destination")
     sess["total_journey_m"] = payload.total_journey_m if payload.total_journey_m is not None else sess.get("total_journey_m", payload.covered_m + payload.remaining_m)
     sess["journey_elapsed_s"] = payload.journey_elapsed_s if payload.journey_elapsed_s is not None else sess.get("journey_elapsed_s", 0)
-    sess["estimated_time_to_destination"] = payload.estimated_time_to_destination
     sess["total_cameras"] = payload.total_cameras if payload.total_cameras is not None else sess.get("total_cameras", 7)
     sess["cleared_cameras"] = payload.cleared_cameras if payload.cleared_cameras is not None else sess.get("cleared_cameras", 0)
-    sess["remaining_cameras"] = payload.remaining_cameras if payload.remaining_cameras is not None else sess.get("remaining_cameras", 7)
-    sess["vehicle_class"] = payload.vehicle_class or "car"
-    sess["nav_mode"] = payload.nav_mode or "normal_routing"
-    sess["turn_instruction"] = payload.turn_instruction
+    sess["challan_count"] = payload.challan_count if payload.challan_count is not None else sess.get("challan_count", 0)
     sess["updated_at"] = time.time()
 
+    # Trigger proactive live event into active Bolna voice call
+    if payload.event_type in ["camera_100m", "checkpoint", "spot_violation", "speed_violation"]:
+        asyncio.create_task(push_bolna_event(payload.event_type, {
+            "speed_kmh": payload.speed_kmh,
+            "camera": payload.next_camera,
+            "dist_m": payload.distance_to_camera_m,
+            "ceiling_kmh": payload.ceiling_kmh,
+            "alert": payload.alert
+        }))
+
     return {"status": "synced", "session_id": session_id}
-
-
-@app.post("/api/bolna/call-event")
-async def send_bolna_call_event(req: CallEventRequest):
-    """
-    Sends real-time event directly into active Bolna call (run_id) via Bolna Event Injection API.
-    """
-    if not req.run_id:
-        return {"status": "skipped", "reason": "No active run_id"}
-    url = f"{BOLNA_API_URL.rstrip('/')}/v1/call/{req.run_id}/events"
-    headers = {
-        "Authorization": f"Bearer {BOLNA_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "event": req.event,
-        "properties": req.properties or {}
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(url, headers=headers, json=payload, timeout=5.0)
-            return {"status": "delivered", "code": resp.status_code, "text": resp.text}
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
 
 
 @app.get("/api/live/status")
@@ -528,32 +471,16 @@ def get_live_bolna_status(response: Response):
             "freshness_timestamp": round(time.time(), 3)
         }
 
-    speed_raw = latest_sess.get("current_speed_kmh")
-    speed_val = round(speed_raw) if speed_raw is not None else 0
-
-    limit_raw = latest_sess.get("limit_kmh")
-    limit_val = round(limit_raw) if limit_raw is not None else 70
-
-    ceiling_raw = latest_sess.get("ceiling_kmh")
-    ceiling_val = round(ceiling_raw, 1) if ceiling_raw is not None else float(limit_val)
-
-    alert = latest_sess.get("alert") or "green"
-    cam_name = latest_sess.get("next_camera") or "Upcoming GMDA Camera Gantry"
-
-    dist_raw = latest_sess.get("distance_to_camera_m")
-    rem_raw = latest_sess.get("remaining_m")
-    dist_m = round(dist_raw if dist_raw is not None else (rem_raw if rem_raw is not None else 500))
-
-    cov_raw = latest_sess.get("covered_m")
-    covered_m = round(cov_raw) if cov_raw is not None else 0
-    remaining_m = round(rem_raw) if rem_raw is not None else 0
-
-    avg_raw = latest_sess.get("current_avg_kmh")
-    avg_speed_val = round(avg_raw, 1) if avg_raw is not None else float(speed_val)
-
-    bank_raw = latest_sess.get("banked_time_s")
-    banked_time_val = round(bank_raw, 1) if bank_raw is not None else 0.0
-
+    speed_val = round(latest_sess.get("current_speed_kmh", 0))
+    limit_val = round(latest_sess.get("limit_kmh", 70))
+    ceiling_val = round(latest_sess.get("ceiling_kmh", limit_val), 1)
+    alert = latest_sess.get("alert", "green")
+    cam_name = latest_sess.get("next_camera", "Upcoming GMDA Camera Gantry")
+    dist_m = round(latest_sess.get("distance_to_camera_m", round(latest_sess.get("remaining_m", 500))))
+    covered_m = round(latest_sess.get("covered_m", 0))
+    remaining_m = round(latest_sess.get("remaining_m", 0))
+    avg_speed_val = round(latest_sess.get("current_avg_kmh", speed_val), 1)
+    banked_time_val = round(latest_sess.get("banked_time_s", 0), 1)
     event_type = latest_sess.get("event_type", "driver_query")
     checkpoint_idx = latest_sess.get("checkpoint_index")
     checkpoint_name = latest_sess.get("checkpoint_name")
@@ -593,17 +520,16 @@ def get_live_bolna_status(response: Response):
         exceeding_details = "You are NOT exceeding any speed threshold"
 
     # Persistent Long Trip Context
-    origin_name = latest_sess.get("route_origin") or "Gurugram Origin"
-    dest_name = latest_sess.get("route_destination") or "Gurugram Destination"
-    tot_journey = latest_sess.get("total_journey_m")
-    total_trip_km = round((tot_journey if tot_journey is not None else (covered_m + remaining_m)) / 1000, 1)
+    origin_name = latest_sess.get("route_origin", "Gurugram Origin")
+    dest_name = latest_sess.get("route_destination", "Gurugram Destination")
+    total_trip_km = round(latest_sess.get("total_journey_m", covered_m + remaining_m) / 1000, 1)
     covered_km = round(covered_m / 1000, 1)
     remaining_km = round(remaining_m / 1000, 1)
     progress_pct = min(100, round((covered_m / max(1.0, covered_m + remaining_m)) * 100))
-    total_cams = latest_sess.get("total_cameras") or 7
-    cleared_cams = latest_sess.get("cleared_cameras") or 0
-    trip_challans = latest_sess.get("challan_count") or 0
-    elapsed_s = latest_sess.get("journey_elapsed_s") or 0
+    total_cams = latest_sess.get("total_cameras", 7)
+    cleared_cams = latest_sess.get("cleared_cameras", 0)
+    trip_challans = latest_sess.get("challan_count", 0)
+    elapsed_s = latest_sess.get("journey_elapsed_s", 0)
     elapsed_min = round(elapsed_s / 60, 1)
 
     trip_summary = (
@@ -614,21 +540,30 @@ def get_live_bolna_status(response: Response):
         f"Challan status: {'Zero Challans' if trip_challans == 0 else f'{trip_challans} violation(s)'}."
     )
 
-    # Dynamic situation analysis with explicit 'Camera is heading' and 'exceeding or not'
+    # Dynamic situation analysis with persistent Checkpoint Context, 'Camera is heading' and 'exceeding or not'
     analysis_parts = []
-    if event_type == "camera_100m" or event_type == "camera_proximity" or dist_m <= 100:
+    latest_cp = latest_sess.get("latest_checkpoint")
+
+    # Persistent Checkpoint Status Injection
+    if latest_cp:
         analysis_parts.append(
-            f"Camera is heading! ANPR Camera {cam_name} is under 100 meters ahead ({dist_m}m). "
+            f"Checkpoint Status ({latest_cp['name']}): {latest_cp['advice']} "
+            f"(Crossed at {latest_cp['speed_kmh']} km/h vs safe ceiling {latest_cp['ceiling_kmh']} km/h). "
+            f"{'Driver is doing it the wrong way / exceeding!' if latest_cp['is_exceeding'] else 'Driver is doing it the right way / compliant!'}"
+        )
+
+    if event_type == "camera_100m" or event_type == "camera_proximity":
+        analysis_parts.append(
+            f"Camera is heading! ANPR Camera {cam_name} is {dist_m}m ahead (ETA {time_to_cam_human}). "
             f"Posted limit is {limit_val} km/h. "
-            f"You have to decelerate your speed now, otherwise the spot challan will be there! "
-            f"{'You are EXCEEDING the limit by +' + str(round(excess_limit)) + ' km/h! Apply braking of ' + str(required_decel_ms2) + ' m/s² immediately!' if is_speeding else 'You are within the safe limit, maintain this pace.'}"
+            f"{'You are EXCEEDING the limit by +' + str(round(excess_limit)) + ' km/h! Slow down!' if is_speeding else 'You are NOT exceeding the limit.'}"
         )
     elif event_type == "spot_violation":
         analysis_parts.append(f"Spot Radar Crossing: Instant speed {speed_val} km/h exceeded {limit_val} km/h limit by +{excess_limit} km/h at {cam_name}.")
     elif event_type == "speed_violation":
         analysis_parts.append(f"Corridor Average Violation: Section average speed {avg_speed_val} km/h exceeded legal limit {limit_val} km/h. Time deficit {banked_time_val}s.")
     elif event_type == "checkpoint":
-        cp_num = checkpoint_idx or 1
+        cp_num = checkpoint_idx or (latest_cp["index"] if latest_cp else 1)
         analysis_parts.append(
             f"Checkpoint {cp_num} ({progress_pct}% progress): Speed {speed_val} km/h, average {avg_speed_val} km/h. "
             f"Ceiling is {ceiling_val} km/h. "
@@ -651,27 +586,16 @@ def get_live_bolna_status(response: Response):
 
     situation_analysis = " ".join(analysis_parts)
 
-    if dist_m <= 100 or event_type in ["camera_100m", "camera_proximity"]:
-        if is_speeding:
-            advice = (
-                f"Camera is heading! ANPR Camera {cam_name} is under 100 meters ahead ({dist_m}m). "
-                f"Posted limit is {limit_val} km/h. You have to decelerate your speed now, otherwise the spot challan will be there! "
-                f"You are exceeding by +{round(excess_limit)} km/h! Decelerate with {required_decel_ms2} m/s² immediately!"
-            )
-        else:
-            advice = (
-                f"Camera is heading! ANPR Camera {cam_name} is under 100 meters ahead ({dist_m}m). "
-                f"Posted limit is {limit_val} km/h. You have to decelerate your speed now, otherwise the spot challan will be there! "
-                f"You are within the safe limit, maintain this pace."
-            )
+    if latest_cp and latest_cp["is_exceeding"]:
+        advice = f"Warning at {latest_cp['name']}: You crossed at {latest_cp['speed_kmh']} km/h exceeding {latest_cp['ceiling_kmh']} km/h ceiling. You are doing it the wrong way. Slow down immediately! Current pace ceiling: {ceiling_val} km/h."
     elif is_speeding:
-        advice = f"Speed is {speed_val} km/h (+{excess_limit} km/h over limit). Camera {cam_name} is in {dist_m}m ({time_to_cam_human}). Decelerate immediately to {ceiling_val} km/h to prevent a challan!"
+        advice = f"Camera is heading! Speed is {speed_val} km/h (+{excess_limit} km/h over limit). Camera {cam_name} is in {dist_m}m ({time_to_cam_human}). Decelerate immediately to {ceiling_val} km/h to prevent a challan!"
     elif is_ceiling_breached:
         advice = f"You are exceeding the pace ceiling of {ceiling_val} km/h by +{excess_ceiling} km/h. Slow down to recover your time budget."
     elif alert == "amber":
         advice = f"Speed {speed_val} km/h is approaching safe ceiling {ceiling_val} km/h. You are not exceeding yet. Hold steady."
     else:
-        advice = f"Cruising safely at {speed_val} km/h within {limit_val} km/h limit. You are not exceeding. All green!"
+        advice = f"Cruising safely at {speed_val} km/h within {limit_val} km/h limit. You are doing it the right way! Safe pace maintained."
 
     return {
         "current_section": latest_sess.get("section_name", "Gurugram Corridor"),
@@ -695,8 +619,16 @@ def get_live_bolna_status(response: Response):
         "remaining_meters": remaining_m,
         "banked_time_seconds": banked_time_val,
         "active_event": event_type,
-        "checkpoint_index": checkpoint_idx,
-        "checkpoint_name": checkpoint_name,
+        "checkpoint_index": checkpoint_idx or (latest_cp["index"] if latest_cp else None),
+        "checkpoint_name": checkpoint_name or (latest_cp["name"] if latest_cp else None),
+        "latest_checkpoint_index": latest_cp["index"] if latest_cp else None,
+        "latest_checkpoint_name": latest_cp["name"] if latest_cp else None,
+        "latest_checkpoint_speed": f"{latest_cp['speed_kmh']} km/h" if latest_cp else None,
+        "latest_checkpoint_ceiling": f"{latest_cp['ceiling_kmh']} km/h" if latest_cp else None,
+        "latest_checkpoint_exceeding": latest_cp["is_exceeding"] if latest_cp else False,
+        "latest_checkpoint_status_label": latest_cp["status_label"] if latest_cp else "No checkpoint crossed yet",
+        "latest_checkpoint_advice": latest_cp["advice"] if latest_cp else "Maintain safe legal speed within ceiling.",
+        "checkpoints_crossed_count": len(latest_sess.get("checkpoints", {})),
         "test_case_id": test_case_id,
         "challan_risk": latest_sess.get("challan_risk", "Zero Risk - Clean Record"),
         "trip_summary": trip_summary,
@@ -705,25 +637,6 @@ def get_live_bolna_status(response: Response):
         "progress_percent": progress_pct,
         "situation_analysis": situation_analysis,
         "coaching_note": advice,
-        "total_journey_km": total_trip_km,
-        "covered_km": covered_km,
-        "remaining_km": remaining_km,
-        "journey_elapsed_time": f"{elapsed_min} minutes",
-        "total_cameras": total_cams,
-        "cleared_cameras": cleared_cams,
-        "remaining_cameras": max(0, total_cams - cleared_cams),
-        "challan_count": trip_challans,
-        "has_spot_challan": latest_sess.get("has_spot_challan", False),
-        "required_deceleration_ms2": required_decel_ms2,
-        "section_length_m": latest_sess.get("section_length_m", covered_m + remaining_m),
-        "covered_in_zone_m": latest_sess.get("covered_in_zone_m", covered_m),
-        "remaining_in_zone_m": latest_sess.get("remaining_in_zone_m", remaining_m),
-        "section_progress_percent": latest_sess.get("section_progress_percent", progress_pct),
-        "checkpoint_ceiling_kmh": latest_sess.get("checkpoint_ceiling_kmh", ceiling_val),
-        "checkpoint_exceeding": latest_sess.get("checkpoint_exceeding", is_ceiling_breached),
-        "vehicle_class": latest_sess.get("vehicle_class", "car"),
-        "nav_mode": latest_sess.get("nav_mode", "normal_routing"),
-        "turn_instruction": latest_sess.get("turn_instruction", "Continue on route"),
         "freshness_timestamp": round(time.time(), 3)
     }
 
@@ -892,14 +805,14 @@ async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
         if speed > ceiling or is_speeding or alert in ("red", "warn", "critical"):
             overhead = round(excess_ceiling if speed > ceiling else excess_limit)
             if lang == "english":
-                spoken = f"{cp_label} ({pct_progress}% split): You are EXCEEDING your safe pace ceiling of {round(ceiling)} km/h by +{overhead} km/h! Your speed is {round(speed)} km/h. Reduce throttle immediately to recover your banked time budget!"
+                spoken = f"{cp_label} ({pct_progress}% split): You are EXCEEDING your safe pace ceiling of {round(ceiling)} km/h by +{overhead} km/h! Your speed is {round(speed)} km/h. You are doing it the wrong way! Decelerate immediately to recover your banked time budget."
             else:
-                spoken = f"{cp_label} ({pct_progress}% split): Aap safe pace ceiling {round(ceiling)} km/h ko exceed kar rahe hain! Aapki speed {round(speed)} km/h hai jo ceiling se {overhead} km/h upar hai. Turant slow kijiye!"
+                spoken = f"{cp_label} ({pct_progress}% split): Aap safe pace ceiling {round(ceiling)} km/h ko exceed kar rahe hain! Aapki speed {round(speed)} km/h hai jo ceiling se {overhead} km/h upar hai. Aap wrong speed par hain, turant slow kijiye!"
         else:
             if lang == "english":
-                spoken = f"{cp_label} ({pct_progress}% split): You are NOT exceeding! Cruising safely at {round(speed)} km/h within your safe ceiling of {round(ceiling)} km/h. Banked time buffer is {banked_s:+} seconds."
+                spoken = f"{cp_label} ({pct_progress}% split): You are NOT exceeding! Cruising safely at {round(speed)} km/h within your safe ceiling of {round(ceiling)} km/h. You are doing it the right way, keep this steady pace."
             else:
-                spoken = f"{cp_label} ({pct_progress}% split): Aap exceed nahi kar rahe hain! Speed {round(speed)} km/h safe ceiling {round(ceiling)} km/h ke andar hai. Time buffer safe hai."
+                spoken = f"{cp_label} ({pct_progress}% split): Aap exceed nahi kar rahe hain! Speed {round(speed)} km/h safe ceiling {round(ceiling)} km/h ke andar hai. Aap bilkul sahi pace maintain kar rahe hain."
 
     elif req.event_type == "test_case_eval":
         if lang == "english":
@@ -977,22 +890,6 @@ def end_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     sess = sessions.pop(session_id)
     return {"status": "ended", "session_id": session_id, "section": sess["section_name"]}
-
-
-@app.get("/{full_path:path}")
-def catch_all(full_path: str):
-    """Serve static frontend files or fallback to index.html for client-side SPA routing."""
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API endpoint not found")
-    
-    if STATIC_DIR:
-        target = STATIC_DIR / full_path
-        if target.exists() and target.is_file():
-            return FileResponse(target)
-        if (STATIC_DIR / "index.html").exists():
-            return FileResponse(STATIC_DIR / "index.html")
-    
-    raise HTTPException(status_code=404, detail="Not Found")
 
 
 if __name__ == "__main__":

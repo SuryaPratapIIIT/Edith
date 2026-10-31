@@ -60,7 +60,7 @@ def run_tests():
 
     # 3. Test GET /api/live/status through Localtunnel
     req = urllib.request.Request(
-        "https://velo-live-suraj.loca.lt/api/live/status",
+        "https://fruity-aliens-run.loca.lt/api/live/status",
         headers={"bypass-tunnel-reminder": "true"}
     )
     with urllib.request.urlopen(req) as resp:
@@ -81,7 +81,7 @@ def run_tests():
 
     # Trigger hangup via tunnel
     req = urllib.request.Request(
-        "https://velo-live-suraj.loca.lt/api/bolna/hangup",
+        "https://fruity-aliens-run.loca.lt/api/bolna/hangup",
         data=json.dumps({"reason": "User said cut the call friday"}).encode(),
         headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"}
     )
@@ -112,8 +112,8 @@ def run_tests():
         tools_params = agent_data["tasks"][0]["tools_config"]["api_tools"]["tools_params"]
         assert "get_live_telemetry" in tools_params, "get_live_telemetry tool missing"
         assert "hangup_call" in tools_params, "hangup_call tool missing"
-        assert "velo-live-suraj.loca.lt" in tools_params["get_live_telemetry"]["url"], "get_live_telemetry URL mismatch"
-        assert "velo-live-suraj.loca.lt" in tools_params["hangup_call"]["url"], "hangup_call URL mismatch"
+        assert "fruity-aliens-run.loca.lt" in tools_params["get_live_telemetry"]["url"], "get_live_telemetry URL mismatch"
+        assert "fruity-aliens-run.loca.lt" in tools_params["hangup_call"]["url"], "hangup_call URL mismatch"
         print("[OK] Bolna Cloud Agent Tools Registered & Pointing to Active Tunnel")
 
     # Reset hangup back to false for next call

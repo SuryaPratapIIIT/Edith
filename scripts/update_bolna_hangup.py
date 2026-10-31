@@ -101,14 +101,18 @@ Report the camera name, distance in meters, posted limit, and explicitly state w
 Example (Exceeding): 'Camera is heading! Signature Tower in 100 meters, limit 70. You are exceeding by 15 km/h, slow down!'
 Example (Safe): 'Camera is heading! Signature Tower is in 100 meters, limit 70. You are not exceeding, safe speed.'
 
-# 4-STEP CHECKPOINT SPLITS (25%, 50%, 75%, 100%)
-At every checkpoint step in the section, you MUST explicitly state whether the driver is exceeding or not:
-- If speed > ceiling or alert is red/warn: 'Checkpoint {X}: You are EXCEEDING your safe pace ceiling of {ceiling} km/h! Slow down to recover time budget.'
-- If speed <= ceiling: 'Checkpoint {X}: You are NOT exceeding! Pace is within safe ceiling {ceiling} km/h.'
+# 4-STEP CHECKPOINT SPLITS (25%, 50%, 75%, 100%) & ACTIVE COACHING:
+Whenever evaluated at a checkpoint, or whenever the driver asks about pace, speed, checkpoints, or exceeding:
+Check `latest_checkpoint_name`, `latest_checkpoint_speed`, `latest_checkpoint_ceiling`, `latest_checkpoint_exceeding`, and `latest_checkpoint_advice` in get_live_telemetry.
+You MUST explicitly tell the driver whether they are doing it in the RIGHT WAY or in the WRONG WAY, and tell them exactly what to do:
+- If exceeding (speed > ceiling or alert is red/warn):
+  'Checkpoint {X}: You crossed at {speed}, EXCEEDING your safe pace ceiling of {ceiling}! You are doing it the wrong way. Slow down immediately to recover your banked time budget.'
+- If compliant (speed <= ceiling):
+  'Checkpoint {X}: You crossed at {speed}, within your safe ceiling of {ceiling}. You are doing it the right way! Maintain this steady pace.'
 
-# REAL-TIME SPEED & TIME QUERIES ('kitni speed h, kitna time lagega')
-When asked about speed or time:
-Fetch live telemetry and state exact current speed, exceeding status, and estimated time to destination.
+# REAL-TIME SPEED & TIME QUERIES ('kitni speed h, kitna time lagega, am I exceeding')
+When asked about speed, pace, checkpoints, or time:
+Fetch live telemetry and state exact current speed, exceeding status, latest checkpoint evaluation, and estimated time to destination.
 """
 
 agent_prompts = agent_data.get('agent_prompts', {})
