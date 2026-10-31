@@ -155,13 +155,23 @@ class LiveTelemetryPayload(BaseModel):
     limit_kmh: float
     covered_m: float
     remaining_m: float
+    section_length_m: Optional[float] = None
+    covered_in_zone_m: Optional[float] = None
+    remaining_in_zone_m: Optional[float] = None
+    section_progress_percent: Optional[float] = None
     next_camera: Optional[str] = None
     distance_to_camera_m: Optional[float] = None
+    estimated_time_to_camera: Optional[str] = None
+    required_deceleration_ms2: Optional[float] = None
     challan_risk: Optional[str] = "zero"
+    challan_count: Optional[int] = 0
+    has_spot_challan: Optional[bool] = False
     alert: Optional[str] = "green"
     event_type: Optional[str] = None
     checkpoint_index: Optional[int] = None
     checkpoint_name: Optional[str] = None
+    checkpoint_ceiling_kmh: Optional[float] = None
+    checkpoint_exceeding: Optional[bool] = None
     ceiling_kmh: Optional[float] = None
     current_avg_kmh: Optional[float] = None
     banked_time_s: Optional[float] = None
@@ -172,9 +182,19 @@ class LiveTelemetryPayload(BaseModel):
     route_destination: Optional[str] = "Destination"
     total_journey_m: Optional[float] = None
     journey_elapsed_s: Optional[float] = None
+    estimated_time_to_destination: Optional[str] = None
     total_cameras: Optional[int] = None
     cleared_cameras: Optional[int] = None
-    challan_count: Optional[int] = None
+    remaining_cameras: Optional[int] = None
+    vehicle_class: Optional[str] = "car"
+    nav_mode: Optional[str] = "normal_routing"
+    turn_instruction: Optional[str] = None
+
+
+class CallEventRequest(BaseModel):
+    run_id: str
+    event: str
+    properties: Optional[dict] = None
 
 
 class BolnaSessionRequest(BaseModel):
@@ -321,14 +341,24 @@ def update_live_telemetry(payload: LiveTelemetryPayload):
     sess["limit_kmh"] = payload.limit_kmh
     sess["covered_m"] = payload.covered_m
     sess["remaining_m"] = payload.remaining_m
+    sess["section_length_m"] = payload.section_length_m if payload.section_length_m is not None else sess.get("section_length_m", payload.covered_m + payload.remaining_m)
+    sess["covered_in_zone_m"] = payload.covered_in_zone_m if payload.covered_in_zone_m is not None else sess.get("covered_in_zone_m", payload.covered_m)
+    sess["remaining_in_zone_m"] = payload.remaining_in_zone_m if payload.remaining_in_zone_m is not None else sess.get("remaining_in_zone_m", payload.remaining_m)
+    sess["section_progress_percent"] = payload.section_progress_percent if payload.section_progress_percent is not None else sess.get("section_progress_percent", 0)
     sess["ceiling_kmh"] = payload.ceiling_kmh if payload.ceiling_kmh is not None else payload.limit_kmh
     sess["alert"] = payload.alert or "green"
     sess["next_camera"] = payload.next_camera or "Upcoming GMDA Gantry"
     sess["distance_to_camera_m"] = payload.distance_to_camera_m if payload.distance_to_camera_m is not None else 0
+    sess["estimated_time_to_camera"] = payload.estimated_time_to_camera
+    sess["required_deceleration_ms2"] = payload.required_deceleration_ms2
     sess["challan_risk"] = payload.challan_risk or "zero"
+    sess["challan_count"] = payload.challan_count if payload.challan_count is not None else sess.get("challan_count", 0)
+    sess["has_spot_challan"] = payload.has_spot_challan if payload.has_spot_challan is not None else False
     sess["event_type"] = payload.event_type
     sess["checkpoint_index"] = payload.checkpoint_index
     sess["checkpoint_name"] = payload.checkpoint_name
+    sess["checkpoint_ceiling_kmh"] = payload.checkpoint_ceiling_kmh
+    sess["checkpoint_exceeding"] = payload.checkpoint_exceeding
     sess["current_avg_kmh"] = payload.current_avg_kmh
     sess["banked_time_s"] = payload.banked_time_s
     sess["test_case_id"] = payload.test_case_id
@@ -338,12 +368,40 @@ def update_live_telemetry(payload: LiveTelemetryPayload):
     sess["route_destination"] = payload.route_destination or sess.get("route_destination", "Gurugram Destination")
     sess["total_journey_m"] = payload.total_journey_m if payload.total_journey_m is not None else sess.get("total_journey_m", payload.covered_m + payload.remaining_m)
     sess["journey_elapsed_s"] = payload.journey_elapsed_s if payload.journey_elapsed_s is not None else sess.get("journey_elapsed_s", 0)
+    sess["estimated_time_to_destination"] = payload.estimated_time_to_destination
     sess["total_cameras"] = payload.total_cameras if payload.total_cameras is not None else sess.get("total_cameras", 7)
     sess["cleared_cameras"] = payload.cleared_cameras if payload.cleared_cameras is not None else sess.get("cleared_cameras", 0)
-    sess["challan_count"] = payload.challan_count if payload.challan_count is not None else sess.get("challan_count", 0)
+    sess["remaining_cameras"] = payload.remaining_cameras if payload.remaining_cameras is not None else sess.get("remaining_cameras", 7)
+    sess["vehicle_class"] = payload.vehicle_class or "car"
+    sess["nav_mode"] = payload.nav_mode or "normal_routing"
+    sess["turn_instruction"] = payload.turn_instruction
     sess["updated_at"] = time.time()
 
     return {"status": "synced", "session_id": session_id}
+
+
+@app.post("/api/bolna/call-event")
+async def send_bolna_call_event(req: CallEventRequest):
+    """
+    Sends real-time event directly into active Bolna call (run_id) via Bolna Event Injection API.
+    """
+    if not req.run_id:
+        return {"status": "skipped", "reason": "No active run_id"}
+    url = f"{BOLNA_API_URL.rstrip('/')}/v1/call/{req.run_id}/events"
+    headers = {
+        "Authorization": f"Bearer {BOLNA_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "event": req.event,
+        "properties": req.properties or {}
+    }
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(url, headers=headers, json=payload, timeout=5.0)
+            return {"status": "delivered", "code": resp.status_code, "text": resp.text}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
 
 
 @app.get("/api/live/status")
@@ -398,16 +456,32 @@ def get_live_bolna_status(response: Response):
             "freshness_timestamp": round(time.time(), 3)
         }
 
-    speed_val = round(latest_sess.get("current_speed_kmh", 0))
-    limit_val = round(latest_sess.get("limit_kmh", 70))
-    ceiling_val = round(latest_sess.get("ceiling_kmh", limit_val), 1)
-    alert = latest_sess.get("alert", "green")
-    cam_name = latest_sess.get("next_camera", "Upcoming GMDA Camera Gantry")
-    dist_m = round(latest_sess.get("distance_to_camera_m", round(latest_sess.get("remaining_m", 500))))
-    covered_m = round(latest_sess.get("covered_m", 0))
-    remaining_m = round(latest_sess.get("remaining_m", 0))
-    avg_speed_val = round(latest_sess.get("current_avg_kmh", speed_val), 1)
-    banked_time_val = round(latest_sess.get("banked_time_s", 0), 1)
+    speed_raw = latest_sess.get("current_speed_kmh")
+    speed_val = round(speed_raw) if speed_raw is not None else 0
+
+    limit_raw = latest_sess.get("limit_kmh")
+    limit_val = round(limit_raw) if limit_raw is not None else 70
+
+    ceiling_raw = latest_sess.get("ceiling_kmh")
+    ceiling_val = round(ceiling_raw, 1) if ceiling_raw is not None else float(limit_val)
+
+    alert = latest_sess.get("alert") or "green"
+    cam_name = latest_sess.get("next_camera") or "Upcoming GMDA Camera Gantry"
+
+    dist_raw = latest_sess.get("distance_to_camera_m")
+    rem_raw = latest_sess.get("remaining_m")
+    dist_m = round(dist_raw if dist_raw is not None else (rem_raw if rem_raw is not None else 500))
+
+    cov_raw = latest_sess.get("covered_m")
+    covered_m = round(cov_raw) if cov_raw is not None else 0
+    remaining_m = round(rem_raw) if rem_raw is not None else 0
+
+    avg_raw = latest_sess.get("current_avg_kmh")
+    avg_speed_val = round(avg_raw, 1) if avg_raw is not None else float(speed_val)
+
+    bank_raw = latest_sess.get("banked_time_s")
+    banked_time_val = round(bank_raw, 1) if bank_raw is not None else 0.0
+
     event_type = latest_sess.get("event_type", "driver_query")
     checkpoint_idx = latest_sess.get("checkpoint_index")
     checkpoint_name = latest_sess.get("checkpoint_name")
@@ -447,16 +521,17 @@ def get_live_bolna_status(response: Response):
         exceeding_details = "You are NOT exceeding any speed threshold"
 
     # Persistent Long Trip Context
-    origin_name = latest_sess.get("route_origin", "Gurugram Origin")
-    dest_name = latest_sess.get("route_destination", "Gurugram Destination")
-    total_trip_km = round(latest_sess.get("total_journey_m", covered_m + remaining_m) / 1000, 1)
+    origin_name = latest_sess.get("route_origin") or "Gurugram Origin"
+    dest_name = latest_sess.get("route_destination") or "Gurugram Destination"
+    tot_journey = latest_sess.get("total_journey_m")
+    total_trip_km = round((tot_journey if tot_journey is not None else (covered_m + remaining_m)) / 1000, 1)
     covered_km = round(covered_m / 1000, 1)
     remaining_km = round(remaining_m / 1000, 1)
     progress_pct = min(100, round((covered_m / max(1.0, covered_m + remaining_m)) * 100))
-    total_cams = latest_sess.get("total_cameras", 7)
-    cleared_cams = latest_sess.get("cleared_cameras", 0)
-    trip_challans = latest_sess.get("challan_count", 0)
-    elapsed_s = latest_sess.get("journey_elapsed_s", 0)
+    total_cams = latest_sess.get("total_cameras") or 7
+    cleared_cams = latest_sess.get("cleared_cameras") or 0
+    trip_challans = latest_sess.get("challan_count") or 0
+    elapsed_s = latest_sess.get("journey_elapsed_s") or 0
     elapsed_min = round(elapsed_s / 60, 1)
 
     trip_summary = (
@@ -469,11 +544,12 @@ def get_live_bolna_status(response: Response):
 
     # Dynamic situation analysis with explicit 'Camera is heading' and 'exceeding or not'
     analysis_parts = []
-    if event_type == "camera_100m" or event_type == "camera_proximity":
+    if event_type == "camera_100m" or event_type == "camera_proximity" or dist_m <= 100:
         analysis_parts.append(
-            f"Camera is heading! ANPR Camera {cam_name} is {dist_m}m ahead (ETA {time_to_cam_human}). "
+            f"Camera is heading! ANPR Camera {cam_name} is under 100 meters ahead ({dist_m}m). "
             f"Posted limit is {limit_val} km/h. "
-            f"{'You are EXCEEDING the limit by +' + str(round(excess_limit)) + ' km/h! Slow down!' if is_speeding else 'You are NOT exceeding the limit.'}"
+            f"You have to decelerate your speed now, otherwise the spot challan will be there! "
+            f"{'You are EXCEEDING the limit by +' + str(round(excess_limit)) + ' km/h! Apply braking of ' + str(required_decel_ms2) + ' m/s² immediately!' if is_speeding else 'You are within the safe limit, maintain this pace.'}"
         )
     elif event_type == "spot_violation":
         analysis_parts.append(f"Spot Radar Crossing: Instant speed {speed_val} km/h exceeded {limit_val} km/h limit by +{excess_limit} km/h at {cam_name}.")
@@ -503,8 +579,21 @@ def get_live_bolna_status(response: Response):
 
     situation_analysis = " ".join(analysis_parts)
 
-    if is_speeding:
-        advice = f"Camera is heading! Speed is {speed_val} km/h (+{excess_limit} km/h over limit). Camera {cam_name} is in {dist_m}m ({time_to_cam_human}). Decelerate immediately to {ceiling_val} km/h to prevent a challan!"
+    if dist_m <= 100 or event_type in ["camera_100m", "camera_proximity"]:
+        if is_speeding:
+            advice = (
+                f"Camera is heading! ANPR Camera {cam_name} is under 100 meters ahead ({dist_m}m). "
+                f"Posted limit is {limit_val} km/h. You have to decelerate your speed now, otherwise the spot challan will be there! "
+                f"You are exceeding by +{round(excess_limit)} km/h! Decelerate with {required_decel_ms2} m/s² immediately!"
+            )
+        else:
+            advice = (
+                f"Camera is heading! ANPR Camera {cam_name} is under 100 meters ahead ({dist_m}m). "
+                f"Posted limit is {limit_val} km/h. You have to decelerate your speed now, otherwise the spot challan will be there! "
+                f"You are within the safe limit, maintain this pace."
+            )
+    elif is_speeding:
+        advice = f"Speed is {speed_val} km/h (+{excess_limit} km/h over limit). Camera {cam_name} is in {dist_m}m ({time_to_cam_human}). Decelerate immediately to {ceiling_val} km/h to prevent a challan!"
     elif is_ceiling_breached:
         advice = f"You are exceeding the pace ceiling of {ceiling_val} km/h by +{excess_ceiling} km/h. Slow down to recover your time budget."
     elif alert == "amber":
@@ -544,6 +633,25 @@ def get_live_bolna_status(response: Response):
         "progress_percent": progress_pct,
         "situation_analysis": situation_analysis,
         "coaching_note": advice,
+        "total_journey_km": total_trip_km,
+        "covered_km": covered_km,
+        "remaining_km": remaining_km,
+        "journey_elapsed_time": f"{elapsed_min} minutes",
+        "total_cameras": total_cams,
+        "cleared_cameras": cleared_cams,
+        "remaining_cameras": max(0, total_cams - cleared_cams),
+        "challan_count": trip_challans,
+        "has_spot_challan": latest_sess.get("has_spot_challan", False),
+        "required_deceleration_ms2": required_decel_ms2,
+        "section_length_m": latest_sess.get("section_length_m", covered_m + remaining_m),
+        "covered_in_zone_m": latest_sess.get("covered_in_zone_m", covered_m),
+        "remaining_in_zone_m": latest_sess.get("remaining_in_zone_m", remaining_m),
+        "section_progress_percent": latest_sess.get("section_progress_percent", progress_pct),
+        "checkpoint_ceiling_kmh": latest_sess.get("checkpoint_ceiling_kmh", ceiling_val),
+        "checkpoint_exceeding": latest_sess.get("checkpoint_exceeding", is_ceiling_breached),
+        "vehicle_class": latest_sess.get("vehicle_class", "car"),
+        "nav_mode": latest_sess.get("nav_mode", "normal_routing"),
+        "turn_instruction": latest_sess.get("turn_instruction", "Continue on route"),
         "freshness_timestamp": round(time.time(), 3)
     }
 

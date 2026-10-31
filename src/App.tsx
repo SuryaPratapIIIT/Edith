@@ -661,9 +661,21 @@ export default function App() {
 
   // Continuous Telemetry Sync to Backend: Keeps /api/live/status completely up to date for Bolna AI
   useEffect(() => {
+    const camLimit = nextCamera ? nextCamera.limit_kmh : postedLimit;
+    const speedMs = currentSpeedThrottle / 3.6;
+    const limitMs = camLimit / 3.6;
+    const reqDecel =
+      currentSpeedThrottle > camLimit && distToNextCamera_m > 0
+        ? Number((Math.max(0, (speedMs * speedMs - limitMs * limitMs) / (2 * Math.max(1, distToNextCamera_m)))).toFixed(2))
+        : 0;
+
     const payload = {
       session_id: 'live_ride',
       section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
+      section_length_m: activeZone ? Math.round(activeZone.length_m) : 3450,
+      covered_in_zone_m: Math.round(coveredInZone_m),
+      remaining_in_zone_m: activeZone ? Math.max(0, Math.round(activeZone.length_m - coveredInZone_m)) : 0,
+      section_progress_percent: activeZone && activeZone.length_m > 0 ? Math.min(100, Math.round((coveredInZone_m / activeZone.length_m) * 100)) : 0,
       speed_kmh: Math.round(currentSpeedThrottle),
       limit_kmh: postedLimit,
       ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
@@ -673,10 +685,13 @@ export default function App() {
       remaining_m: Math.round(distToDestination_m),
       next_camera: nextCamera ? nextCamera.name : 'Upcoming GMDA ANPR Camera',
       distance_to_camera_m: Math.round(distToNextCamera_m),
+      required_deceleration_ms2: reqDecel,
       challan_risk:
         challanHistory.length > 0
           ? `High Challan Risk (${challanHistory.length} incident(s) in region)`
           : 'Zero Challan Risk (Clean Record)',
+      challan_count: challanHistory.length,
+      has_spot_challan: hasSpotChallan || challanHistory.some(c => c.type === 'spot_challan'),
       alert: currentPace.alert,
       language: voiceLanguage,
       route_origin: journey.origin.name,
@@ -685,7 +700,14 @@ export default function App() {
       journey_elapsed_s: Math.round(journeyElapsed_s),
       total_cameras: journey.cameras.length,
       cleared_cameras: journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length,
-      challan_count: challanHistory.length
+      remaining_cameras: journey.cameras.filter(c => c.journeyDistance_m > journeyCovered_m).length,
+      checkpoint_index: activeCheckpointIndex,
+      checkpoint_name: activeCheckpointIndex ? `Checkpoint ${activeCheckpointIndex} (${activeCheckpointIndex * 25}%)` : null,
+      checkpoint_ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
+      checkpoint_exceeding: currentPace.max_avg_kmh !== null ? currentSpeedThrottle > currentPace.max_avg_kmh : currentSpeedThrottle > postedLimit,
+      vehicle_class: vehicleClass,
+      nav_mode: navMode,
+      turn_instruction: nextCamera ? `Next: ${nextCamera.name} in ${(distToNextCamera_m / 1000).toFixed(1)} km` : `Destination: ${journey.destination.name}`
     };
 
     const timer = setTimeout(() => {
@@ -702,6 +724,11 @@ export default function App() {
     currentSpeedThrottle,
     postedLimit,
     activeZone,
+    coveredInZone_m,
+    activeCheckpointIndex,
+    hasSpotChallan,
+    vehicleClass,
+    navMode,
     nextCamera,
     distToNextCamera_m,
     distToDestination_m,

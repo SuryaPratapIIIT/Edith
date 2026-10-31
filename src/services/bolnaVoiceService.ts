@@ -51,6 +51,7 @@ class BolnaVoiceService {
   private lastTriggerTime: number = 0;
   private lastTriggerEvent: string = '';
   private hangupPollTimer: any = null;
+  private activeRunId: string | null = null;
 
   /**
    * Current connection state
@@ -183,6 +184,7 @@ class BolnaVoiceService {
       });
 
       this.call.on('call-start', () => {
+        this.activeRunId = this.call?.getRunId() || null;
         this.notifyState('active');
         this.notifyError(null);
         // Begin monitoring for hangup requests from Friday's end
@@ -190,6 +192,7 @@ class BolnaVoiceService {
       });
 
       this.call.on('call-end', () => {
+        this.activeRunId = null;
         this.stopHangupWatcher();
         this.notifyState('ended');
         this.notifyVolume(0);
@@ -370,6 +373,28 @@ class BolnaVoiceService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }).catch(() => {});
+
+    // Forward event directly to active Bolna voice call execution if call is live
+    if (this.activeRunId) {
+      fetch('/api/bolna/call-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          run_id: this.activeRunId,
+          event: eventType,
+          properties: {
+            event_type: eventType,
+            camera_nearby: telemetryData?.camera_nearby,
+            distance_to_camera_m: telemetryData?.distance_to_camera_m,
+            speed_kmh: telemetryData?.speed_kmh,
+            limit_kmh: telemetryData?.limit_kmh,
+            ceiling_kmh: telemetryData?.ceiling_kmh,
+            checkpoint_index: telemetryData?.checkpoint_index,
+            alert: telemetryData?.alert
+          }
+        })
+      }).catch(() => {});
+    }
 
     // 2. Query dynamic reasoning engine to keep UI subtitles updated in real time
     try {
