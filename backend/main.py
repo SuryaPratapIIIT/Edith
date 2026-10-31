@@ -215,6 +215,13 @@ async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
             session_data = resp.json()
             global active_bolna_run_id
             active_bolna_run_id = session_data.get("run_id")
+            # Always ensure hangup flag is cleared on new call creation
+            for s in sessions.values():
+                s["hangup_requested"] = False
+                s["hangup_timestamp"] = 0
+            if "live_ride" in sessions:
+                sessions["live_ride"]["hangup_requested"] = False
+                sessions["live_ride"]["hangup_timestamp"] = 0
             return session_data
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=f"Failed to reach Bolna API: {str(exc)}")
@@ -677,22 +684,24 @@ def get_bolna_status(session_id: str):
 
 class HangupPayload(BaseModel):
     reason: Optional[str] = "driver requested hangup"
+    user_command: Optional[str] = None
 
 
 @app.post("/api/bolna/hangup")
 def handle_bolna_hangup(payload: Optional[HangupPayload] = None, response: Response = None):
     """
-    Called by Bolna Agent tool hangup_call when the driver says 'cut the call', 'hang up', or 'end session'.
-    Sets hangup flag so frontend immediately terminates the WebRTC call from Friday's end.
+    Called by Bolna Agent tool hangup_call when the driver explicitly says 'cut the call', 'hang up', or 'end session'.
+    Sets hangup flag with current timestamp so frontend terminates the WebRTC call from Friday's end.
     """
     if response:
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    now = time.time()
     for s in sessions.values():
         s["hangup_requested"] = True
-        s["hangup_timestamp"] = time.time()
+        s["hangup_timestamp"] = now
     if "live_ride" in sessions:
         sessions["live_ride"]["hangup_requested"] = True
-        sessions["live_ride"]["hangup_timestamp"] = time.time()
+        sessions["live_ride"]["hangup_timestamp"] = now
     return {
         "status": "hangup_initiated",
         "action": "cut_call",
@@ -719,6 +728,10 @@ def reset_hangup_status(response: Response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     for s in sessions.values():
         s["hangup_requested"] = False
+        s["hangup_timestamp"] = 0
+    if "live_ride" in sessions:
+        sessions["live_ride"]["hangup_requested"] = False
+        sessions["live_ride"]["hangup_timestamp"] = 0
     return {"status": "reset"}
 
 

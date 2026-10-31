@@ -51,6 +51,7 @@ class BolnaVoiceService {
   private lastTriggerTime: number = 0;
   private lastTriggerEvent: string = '';
   private hangupPollTimer: any = null;
+  private callSessionStartTime: number = 0;
 
   /**
    * Current connection state
@@ -149,8 +150,11 @@ class BolnaVoiceService {
       return;
     }
 
-    // Reset any previous hangup signal on the backend
-    fetch('/api/bolna/reset-hangup', { method: 'POST' }).catch(() => {});
+    this.callSessionStartTime = Date.now();
+    // Synchronously reset previous hangup signal on the backend so stale hangups never cut the new call
+    try {
+      await fetch('/api/bolna/reset-hangup', { method: 'POST' });
+    } catch {}
 
     this.notifyError(null);
     this.notifyState('connecting');
@@ -272,14 +276,16 @@ class BolnaVoiceService {
         const res = await fetch('/api/bolna/hangup-status');
         if (res.ok) {
           const data = await res.json();
-          if (data.hangup_requested) {
-            console.log('[Bolna Voice] Friday triggered hangup. Cutting call from Friday\'s end...');
+          // STRICT CONDITION: Only terminate if Friday explicitly triggered hangup AFTER this specific call started!
+          const hangupTimestampMs = (data.timestamp || 0) * 1000;
+          if (data.hangup_requested && hangupTimestampMs >= this.callSessionStartTime) {
+            console.log('[Bolna Voice] Driver explicitly commanded hangup. Cutting call from Friday\'s end...');
             this.stopHangupWatcher();
-            // Allow 1.4 seconds for Friday's closing statement to finish playing through speakers
+            // Allow 1.2 seconds for Friday's closing statement to finish playing through speakers
             setTimeout(async () => {
               await this.stopCall();
               fetch('/api/bolna/reset-hangup', { method: 'POST' }).catch(() => {});
-            }, 1400);
+            }, 1200);
           }
         }
       } catch (e) {
