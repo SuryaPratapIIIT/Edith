@@ -42,7 +42,7 @@ def run():
     while True:
         print("[SUPERVISOR] Launching npx localtunnel...")
         proc = subprocess.Popen(
-            ["npx.cmd", "-y", "localtunnel", "--port", "8000"],
+            ["npx.cmd", "-y", "localtunnel", "--port", "8000", "--subdomain", "velo-ai-copilot"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

@@ -955,21 +955,14 @@ async def synthesize_proactive_alert(req: SynthesizeAlertRequest):
                     voice_audio_cache[cache_key] = resp.content
                     return Response(content=resp.content, media_type="audio/mpeg")
         except Exception as e:
-            print(f"[WARN] ElevenLabs direct synthesis fallback to neural edge-tts: {e}")
+            print(f"[WARN] ElevenLabs direct synthesis error: {e}")
 
-    try:
-        import edge_tts
-        neural_voice = "hi-IN-SwaraNeural" if req.language == "hindi" else "en-IN-NeerjaExpressiveNeural"
-        communicate = edge_tts.Communicate(text, neural_voice, rate="+5%")
-        audio_chunks = []
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_chunks.append(chunk["data"])
-        final_audio = b"".join(audio_chunks)
-        voice_audio_cache[cache_key] = final_audio
-        return Response(content=final_audio, media_type="audio/mpeg")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(exc)}")
+    # If ElevenLabs API key is not configured, NEVER play an inconsistent second synthetic voice
+    # (such as edge-tts Swara/Neerja) that contradicts Friday's actual voice.
+    raise HTTPException(
+        status_code=503,
+        detail="ELEVENLABS_API_KEY required for Friday voice cloning. Suppressed to prevent second voice mismatch."
+    )
 
 
 @app.get("/api/config")

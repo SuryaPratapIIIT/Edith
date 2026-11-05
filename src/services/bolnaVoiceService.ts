@@ -240,6 +240,17 @@ class BolnaVoiceService {
    */
   public async stopCall(): Promise<void> {
     this.stopHangupWatcher();
+
+    // Immediately stop, cancel, and destroy any proactive alert audio
+    if (this.currentAlertAudio) {
+      try {
+        this.currentAlertAudio.pause();
+        this.currentAlertAudio.currentTime = 0;
+        this.currentAlertAudio.src = '';
+      } catch (_) {}
+      this.currentAlertAudio = null;
+    }
+
     if (this.call) {
       try {
         await this.call.stop();
@@ -322,7 +333,8 @@ class BolnaVoiceService {
    * speakers unprompted, without robotic browser TTS or synthetic second voices.
    */
   public async speakProactiveVoiceAlert(text: string, language: VoiceLanguage = 'hinglish'): Promise<void> {
-    if (this.isMuted) return;
+    // If call is NOT currently active (e.g. user cut the call), NEVER play any voice audio!
+    if (!this.isCallActive() || this.isMuted) return;
     if (!text || text.trim() === '') return;
 
     try {
@@ -347,6 +359,11 @@ class BolnaVoiceService {
         return;
       }
 
+      // Re-verify call is still active after network fetch
+      if (!this.isCallActive()) {
+        return;
+      }
+
       const blob = await res.blob();
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
@@ -364,17 +381,22 @@ class BolnaVoiceService {
         if (this.currentAlertAudio === audio) {
           this.currentAlertAudio = null;
         }
-        if (wasCallActive && !prevMuted) {
+        if (this.isCallActive() && !this.isMuted) {
           this.call?.setMuted(false);
         }
       };
 
       audio.onerror = () => {
         URL.revokeObjectURL(audioUrl);
-        if (wasCallActive && !prevMuted) {
+        if (this.isCallActive() && !this.isMuted) {
           this.call?.setMuted(false);
         }
       };
+
+      if (!this.isCallActive()) {
+        URL.revokeObjectURL(audioUrl);
+        return;
+      }
 
       await audio.play();
     } catch (e) {
@@ -489,8 +511,8 @@ class BolnaVoiceService {
         if (data.spoken_text) {
           // Update visual UI subtitles / notifications
           this.notifySpeech(data.spoken_text, eventType);
-          // Proactively speak in Friday's warm voice unprompted for camera proximity & checkpoints
-          if (eventType === 'camera_100m' || eventType === 'checkpoint' || eventType === 'spot_violation' || eventType === 'speed_violation') {
+          // Proactively speak in Friday's warm voice unprompted ONLY if the call is currently ACTIVE!
+          if (this.isCallActive() && (eventType === 'camera_100m' || eventType === 'checkpoint' || eventType === 'spot_violation' || eventType === 'speed_violation')) {
             this.speakProactiveVoiceAlert(data.spoken_text, telemetryData?.language ?? 'hinglish');
           }
         }
