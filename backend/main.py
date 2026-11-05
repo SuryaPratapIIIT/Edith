@@ -43,7 +43,10 @@ SAFETY_MARGIN = float(os.getenv("SAFETY_MARGIN", "0.04"))
 AMBER_GAP_KMH = float(os.getenv("AMBER_GAP_KMH", "5.0"))
 GANTRIES_FILE_PATH = os.getenv("GANTRIES_FILE_PATH", "./data/gantries.json")
 
-from pace_engine import calculate_pace, haversine_m
+try:
+    from pace_engine import calculate_pace, haversine_m
+except ImportError:
+    from backend.pace_engine import calculate_pace, haversine_m
 
 app = FastAPI(
     title="Voice-First Pace Coach API",

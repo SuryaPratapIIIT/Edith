@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\"",
+    "dev:frontend": "vite",
     "dev:backend": "python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload",
     "dev:all": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\"",
+    "dev:full": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"python -u scripts/tunnel_supervisor.py\"",
     "tunnel": "python -u scripts/tunnel_supervisor.py",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
