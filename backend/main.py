@@ -888,6 +888,9 @@ async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
     }
 
 
+voice_audio_cache: dict = {}
+
+
 class SynthesizeAlertRequest(BaseModel):
     text: str
     language: Optional[str] = "hinglish"
@@ -899,11 +902,15 @@ async def synthesize_proactive_alert(req: SynthesizeAlertRequest):
     Synthesizes proactive voice warnings matching Friday's exact persona (Tripti / Natural Indian Neural Voice).
     If ELEVENLABS_API_KEY is configured, uses ElevenLabs voice_id 1Z7Y8o9cvUeWq8oLKgMY (Tripti).
     Otherwise, uses high-fidelity neural edge-tts (en-IN-NeerjaExpressiveNeural / hi-IN-SwaraNeural).
-    Returns real audio/mpeg stream directly to the browser audio player.
+    Returns real audio/mpeg stream directly to the browser audio player with zero-latency caching.
     """
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text required")
+
+    cache_key = f"{req.language}:{text}"
+    if cache_key in voice_audio_cache:
+        return Response(content=voice_audio_cache[cache_key], media_type="audio/mpeg")
 
     eleven_key = os.getenv("ELEVENLABS_API_KEY", "")
     voice_id = os.getenv("ELEVENLABS_VOICE_ID", "1Z7Y8o9cvUeWq8oLKgMY")  # Friday's Tripti voice
@@ -926,6 +933,7 @@ async def synthesize_proactive_alert(req: SynthesizeAlertRequest):
             async with httpx.AsyncClient() as client:
                 resp = await client.post(url, headers=headers, json=payload, timeout=8.0)
                 if resp.status_code == 200:
+                    voice_audio_cache[cache_key] = resp.content
                     return Response(content=resp.content, media_type="audio/mpeg")
         except Exception as e:
             print(f"[WARN] ElevenLabs direct synthesis fallback to neural edge-tts: {e}")
@@ -938,7 +946,9 @@ async def synthesize_proactive_alert(req: SynthesizeAlertRequest):
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 audio_chunks.append(chunk["data"])
-        return Response(content=b"".join(audio_chunks), media_type="audio/mpeg")
+        final_audio = b"".join(audio_chunks)
+        voice_audio_cache[cache_key] = final_audio
+        return Response(content=final_audio, media_type="audio/mpeg")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(exc)}")
 
