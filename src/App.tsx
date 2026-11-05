@@ -99,6 +99,7 @@ export default function App() {
   const spotChallanTriggeredRef = useRef<boolean>(false);
   const lastAlertLevelRef = useRef<AlertLevel>('green');
   const lastTelemetrySyncTimeRef = useRef<number>(0);
+  const lastBackendFailTimeRef = useRef<number>(0);
 
   // Vehicle class and safety configs
   const [vehicleClass, setVehicleClass] = useState<VehicleClass>('car');
@@ -663,8 +664,9 @@ export default function App() {
   // Continuous Telemetry Sync to Backend: Keeps /api/live/status completely fresh in real time for Bolna AI
   useEffect(() => {
     const now = Date.now();
-    // Throttle updates to ~300ms to guarantee zero-lag real-time sync without socket flooding
-    if (now - lastTelemetrySyncTimeRef.current < 300) {
+    // Throttle updates: ~300ms when online, or back off to 4s if backend server is not running
+    const minInterval = lastBackendFailTimeRef.current > 0 ? 4000 : 300;
+    if (now - lastTelemetrySyncTimeRef.current < minInterval) {
       return;
     }
     lastTelemetrySyncTimeRef.current = now;
@@ -700,7 +702,17 @@ export default function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }).catch(() => {});
+    })
+      .then(res => {
+        if (res.ok) {
+          lastBackendFailTimeRef.current = 0;
+        } else {
+          lastBackendFailTimeRef.current = Date.now();
+        }
+      })
+      .catch(() => {
+        lastBackendFailTimeRef.current = Date.now();
+      });
   }, [
     journeyCovered_m,
     currentSpeedThrottle,
