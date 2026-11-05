@@ -682,6 +682,10 @@ def get_bolna_status(session_id: str):
     }
 
 
+global_hangup_requested: bool = False
+global_hangup_timestamp: float = 0.0
+
+
 class HangupPayload(BaseModel):
     reason: Optional[str] = "driver requested hangup"
     user_command: Optional[str] = None
@@ -693,15 +697,17 @@ def handle_bolna_hangup(payload: Optional[HangupPayload] = None, response: Respo
     Called by Bolna Agent tool hangup_call when the driver explicitly says 'cut the call', 'hang up', or 'end session'.
     Sets hangup flag with current timestamp so frontend terminates the WebRTC call from Friday's end.
     """
+    global global_hangup_requested, global_hangup_timestamp
     if response:
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     now = time.time()
+    global_hangup_requested = True
+    global_hangup_timestamp = now
+    if "live_ride" not in sessions:
+        sessions["live_ride"] = {}
     for s in sessions.values():
         s["hangup_requested"] = True
         s["hangup_timestamp"] = now
-    if "live_ride" in sessions:
-        sessions["live_ride"]["hangup_requested"] = True
-        sessions["live_ride"]["hangup_timestamp"] = now
     return {
         "status": "hangup_initiated",
         "action": "cut_call",
@@ -714,24 +720,25 @@ def get_hangup_status(response: Response):
     """
     Polled by frontend WebRTC service to cleanly drop the call when Friday initiates hangup.
     """
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    global global_hangup_requested, global_hangup_timestamp
+    if response:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     sess = sessions.get("live_ride")
-    if not sess and sessions:
-        sess = list(sessions.values())[-1]
-    hangup_req = bool(sess.get("hangup_requested", False)) if sess else False
-    hangup_time = sess.get("hangup_timestamp", 0) if sess else 0
+    hangup_req = global_hangup_requested or (bool(sess.get("hangup_requested", False)) if sess else False)
+    hangup_time = max(global_hangup_timestamp, sess.get("hangup_timestamp", 0) if sess else 0)
     return {"hangup_requested": hangup_req, "timestamp": hangup_time}
 
 
 @app.post("/api/bolna/reset-hangup")
 def reset_hangup_status(response: Response):
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    global global_hangup_requested, global_hangup_timestamp
+    if response:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    global_hangup_requested = False
+    global_hangup_timestamp = 0.0
     for s in sessions.values():
         s["hangup_requested"] = False
         s["hangup_timestamp"] = 0
-    if "live_ride" in sessions:
-        sessions["live_ride"]["hangup_requested"] = False
-        sessions["live_ride"]["hangup_timestamp"] = 0
     return {"status": "reset"}
 
 
@@ -879,6 +886,61 @@ async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
         "spoken_text": spoken,
         "persona": "FRIDAY (Bolna Voice AI Agent)"
     }
+
+
+class SynthesizeAlertRequest(BaseModel):
+    text: str
+    language: Optional[str] = "hinglish"
+
+
+@app.post("/api/voice/synthesize-alert")
+async def synthesize_proactive_alert(req: SynthesizeAlertRequest):
+    """
+    Synthesizes proactive voice warnings matching Friday's exact persona (Tripti / Natural Indian Neural Voice).
+    If ELEVENLABS_API_KEY is configured, uses ElevenLabs voice_id 1Z7Y8o9cvUeWq8oLKgMY (Tripti).
+    Otherwise, uses high-fidelity neural edge-tts (en-IN-NeerjaExpressiveNeural / hi-IN-SwaraNeural).
+    Returns real audio/mpeg stream directly to the browser audio player.
+    """
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text required")
+
+    eleven_key = os.getenv("ELEVENLABS_API_KEY", "")
+    voice_id = os.getenv("ELEVENLABS_VOICE_ID", "1Z7Y8o9cvUeWq8oLKgMY")  # Friday's Tripti voice
+
+    if eleven_key:
+        try:
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+            headers = {
+                "xi-api-key": eleven_key,
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "text": text,
+                "model_id": "eleven_turbo_v2_5",
+                "voice_settings": {
+                    "stability": 0.5,
+                    "similarity_boost": 0.6
+                }
+            }
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(url, headers=headers, json=payload, timeout=8.0)
+                if resp.status_code == 200:
+                    return Response(content=resp.content, media_type="audio/mpeg")
+        except Exception as e:
+            print(f"[WARN] ElevenLabs direct synthesis fallback to neural edge-tts: {e}")
+
+    try:
+        import edge_tts
+        neural_voice = "hi-IN-SwaraNeural" if req.language == "hindi" else "en-IN-NeerjaExpressiveNeural"
+        communicate = edge_tts.Communicate(text, neural_voice, rate="+5%")
+        audio_chunks = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_chunks.append(chunk["data"])
+        return Response(content=b"".join(audio_chunks), media_type="audio/mpeg")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(exc)}")
 
 
 @app.get("/api/config")

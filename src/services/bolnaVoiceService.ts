@@ -52,6 +52,7 @@ class BolnaVoiceService {
   private lastTriggerEvent: string = '';
   private hangupPollTimer: any = null;
   private callSessionStartTime: number = 0;
+  private currentAlertAudio: HTMLAudioElement | null = null;
 
   constructor() {
     // Completely silence and cancel any browser SpeechSynthesis (no second voice)
@@ -317,15 +318,67 @@ class BolnaVoiceService {
    */
   /**
    * Proactive voice announcement:
-   * Second voice (SpeechSynthesis) has been completely removed.
-   * All voice tasks are handled strictly and exclusively by the Bolna Voice AI Agent (FRIDAY)
-   * via WebRTC audio stream.
+   * Streams high-fidelity neural audio matching Friday's exact voice directly through
+   * speakers unprompted, without robotic browser TTS or synthetic second voices.
    */
-  public speakProactiveVoiceAlert(_text: string): void {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      try {
+  public async speakProactiveVoiceAlert(text: string, language: VoiceLanguage = 'hinglish'): Promise<void> {
+    if (this.isMuted) return;
+    if (!text || text.trim() === '') return;
+
+    try {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
-      } catch (_) {}
+      }
+
+      // Stop previous alert if still playing
+      if (this.currentAlertAudio) {
+        this.currentAlertAudio.pause();
+        this.currentAlertAudio.currentTime = 0;
+        this.currentAlertAudio = null;
+      }
+
+      const res = await fetch('/api/voice/synthesize-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language })
+      });
+
+      if (!res.ok) {
+        return;
+      }
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      this.currentAlertAudio = audio;
+
+      // Temporarily mute WebRTC mic during Friday's alert playback to prevent audio feedback
+      const wasCallActive = this.isCallActive();
+      const prevMuted = this.isMuted;
+      if (wasCallActive && !prevMuted) {
+        this.call?.setMuted(true);
+      }
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        if (this.currentAlertAudio === audio) {
+          this.currentAlertAudio = null;
+        }
+        if (wasCallActive && !prevMuted) {
+          this.call?.setMuted(false);
+        }
+      };
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        if (wasCallActive && !prevMuted) {
+          this.call?.setMuted(false);
+        }
+      };
+
+      await audio.play();
+    } catch (e) {
+      console.warn('[Friday Proactive Voice Alert Playback Error]:', e);
     }
   }
 
@@ -434,8 +487,12 @@ class BolnaVoiceService {
       if (analyzeRes.ok) {
         const data = await analyzeRes.json();
         if (data.spoken_text) {
-          // Update visual UI subtitles / notifications only (ZERO second voice)
+          // Update visual UI subtitles / notifications
           this.notifySpeech(data.spoken_text, eventType);
+          // Proactively speak in Friday's warm voice unprompted for camera proximity & checkpoints
+          if (eventType === 'camera_100m' || eventType === 'checkpoint' || eventType === 'spot_violation' || eventType === 'speed_violation') {
+            this.speakProactiveVoiceAlert(data.spoken_text, telemetryData?.language ?? 'hinglish');
+          }
         }
       }
     } catch (e) {
