@@ -53,6 +53,15 @@ class BolnaVoiceService {
   private hangupPollTimer: any = null;
   private callSessionStartTime: number = 0;
 
+  constructor() {
+    // Completely silence and cancel any browser SpeechSynthesis (no second voice)
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) {}
+    }
+  }
+
   /**
    * Current connection state
    */
@@ -307,32 +316,16 @@ class BolnaVoiceService {
    * Bolna AI Agent is the sole, exclusive voice co-pilot.
    */
   /**
-   * Proactive voice announcement matching the Friday persona.
-   * Plays the alert aloud directly to the driver's audio output (speakers/headphones)
-   * without injecting into the WebRTC microphone stream.
+   * Proactive voice announcement:
+   * Second voice (SpeechSynthesis) has been completely removed.
+   * All voice tasks are handled strictly and exclusively by the Bolna Voice AI Agent (FRIDAY)
+   * via WebRTC audio stream.
    */
-  public speakProactiveVoiceAlert(text: string): void {
-    if (this.isMuted) return;
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
-
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      
-      const voices = window.speechSynthesis.getVoices();
-      const fridayVoice = voices.find(v =>
-        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Female')) &&
-        !v.name.includes('David') && !v.name.includes('Male')
-      ) || voices[0];
-
-      if (fridayVoice) {
-        utterance.voice = fridayVoice;
-      }
-      utterance.rate = 1.05;
-      utterance.pitch = 1.05;
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn('[Bolna Voice Alert Error]:', e);
+  public speakProactiveVoiceAlert(_text: string): void {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) {}
     }
   }
 
@@ -441,10 +434,8 @@ class BolnaVoiceService {
       if (analyzeRes.ok) {
         const data = await analyzeRes.json();
         if (data.spoken_text) {
+          // Update visual UI subtitles / notifications only (ZERO second voice)
           this.notifySpeech(data.spoken_text, eventType);
-          if (eventType === 'checkpoint' || eventType === 'camera_100m' || eventType === 'spot_violation' || eventType === 'speed_violation') {
-            this.speakProactiveVoiceAlert(data.spoken_text);
-          }
         }
       }
     } catch (e) {
