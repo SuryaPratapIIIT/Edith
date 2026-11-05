@@ -16,14 +16,14 @@ API_KEY = os.getenv('BOLNA_API_KEY', '')
 AGENT_ID = os.getenv('BOLNA_AGENT_ID', 'e629dcb5-36f8-4ef6-9748-8eff47c824e5')
 
 def update_bolna(tunnel_url: str):
-    print(f"[SUPERVISOR] Syncing Bolna Cloud Agent to: {tunnel_url}")
+    print(f"[SUPERVISOR] Syncing Bolna Cloud Agent to: {tunnel_url}", flush=True)
     try:
         script_path = os.path.join(os.path.dirname(__file__), "update_bolna_hangup.py")
         res = subprocess.run([sys.executable, script_path, tunnel_url], capture_output=True, text=True, check=True)
-        print(f"[SUPERVISOR] Bolna synced successfully: {res.stdout.strip()}")
+        print(f"[SUPERVISOR] Bolna synced successfully: {res.stdout.strip()}", flush=True)
         return True
     except Exception as e:
-        print(f"[SUPERVISOR ERROR] Failed to update Bolna: {e}")
+        print(f"[SUPERVISOR ERROR] Failed to update Bolna: {e}", flush=True)
         return False
 
 def ping_tunnel(tunnel_url: str):
@@ -49,8 +49,11 @@ def run():
             bufsize=1
         )
         tunnel_url = None
-        for line in proc.stdout:
-            print(f"[LT OUTPUT] {line.strip()}")
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            print(f"[LT OUTPUT] {line.strip()}", flush=True)
             match = re.search(r"https://[a-zA-Z0-9-]+\.loca\.lt", line)
             if match:
                 tunnel_url = match.group(0)

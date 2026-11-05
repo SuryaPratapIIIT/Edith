@@ -4,12 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"python -u scripts/tunnel_supervisor.py\"",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"node scripts/tunnel.js\"",
     "dev:frontend": "vite",
     "dev:backend": "python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload",
     "dev:all": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\"",
-    "dev:full": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"python -u scripts/tunnel_supervisor.py\"",
-    "tunnel": "python -u scripts/tunnel_supervisor.py",
+    "dev:full": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"node scripts/tunnel.js\"",
+    "tunnel": "node scripts/tunnel.js",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
@@ -33,6 +33,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
+    "localtunnel": "^2.0.2",
     "oxlint": "^1.89.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",
