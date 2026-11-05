@@ -664,8 +664,8 @@ export default function App() {
   // Continuous Telemetry Sync to Backend: Keeps /api/live/status completely fresh in real time for Bolna AI
   useEffect(() => {
     const now = Date.now();
-    // Throttle updates: ~300ms when online, or back off to 4s if backend server is not running
-    const minInterval = lastBackendFailTimeRef.current > 0 ? 4000 : 300;
+    // Throttle event-driven sync to 1000ms when online, or back off to 4s if backend is unreachable
+    const minInterval = lastBackendFailTimeRef.current > 0 ? 4000 : 1000;
     if (now - lastTelemetrySyncTimeRef.current < minInterval) {
       return;
     }

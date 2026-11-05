@@ -17,7 +17,15 @@ import os
 import asyncio
 import httpx
 from pathlib import Path
+import logging
 from typing import Optional
+
+# Filter out high-frequency telemetry heartbeats from cluttering the console log
+class TelemetryLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/api/telemetry/live" not in record.getMessage()
+
+logging.getLogger("uvicorn.access").addFilter(TelemetryLogFilter())
 
 # ─── Load Environment Variables ──────────────────────────────────────────────
 try:
