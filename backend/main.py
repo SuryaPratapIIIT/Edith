@@ -677,26 +677,31 @@ def get_bolna_status(session_id: str):
         return {"error": "No active ride session found for this rider. Please start a session from the app."}
 
     sess = sessions[session_id]
-    alert = sess["alert"]
-    remaining_km = round(sess["remaining_m"] / 1000, 2)
+    alert = sess.get("alert", "green")
+    remaining_km = round(sess.get("remaining_m", 0) / 1000, 2)
+    ceiling_kmh = round(sess.get("ceiling_kmh", sess.get("limit_kmh", 70)))
+    current_speed_kmh = round(sess.get("current_speed_kmh", 0))
+    limit_kmh = round(sess.get("limit_kmh", 70))
+    section_name = sess.get("section_name", "Gurugram Expressway")
 
     # Hinglish coaching note for the Bolna agent
     if alert == "red":
         advice = "Speed bahut zyada hai! Abhi slow karo."
     elif alert == "amber":
-        advice = f"Speed limit ke karib aa rahe hain. {round(sess['ceiling_kmh'])} ke neeche rakho."
+        advice = f"Speed limit ke karib aa rahe hain. {ceiling_kmh} ke neeche rakho."
     else:
-        advice = f"Sab sahi hai. {round(sess['ceiling_kmh'])} tak chal sakte ho."
+        advice = f"Sab sahi hai. {ceiling_kmh} tak chal sakte ho."
 
     return {
-        "current_section": sess["section_name"],
-        "posted_limit": f"{sess['limit_kmh']} km/h",
-        "current_speed": f"{round(sess['current_speed_kmh'])} km/h",
+        "current_section": section_name,
+        "posted_limit": f"{limit_kmh} km/h",
+        "current_speed": f"{current_speed_kmh} km/h",
         "current_avg_speed": f"{round(sess.get('current_avg_kmh', 0))} km/h",
-        "max_allowed_pace": f"{round(sess['ceiling_kmh'])} km/h",
+        "max_allowed_pace": f"{ceiling_kmh} km/h",
         "status": alert,
         "remaining_km": remaining_km,
         "banked_time_s": sess.get("banked_time_s", 0),
+        "hangup_requested": sess.get("hangup_requested", global_hangup_requested),
         "coaching_note": advice
     }
 
