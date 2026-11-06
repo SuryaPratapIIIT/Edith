@@ -56,7 +56,6 @@ function scheduleReconnect(delayMs = 2000) {
 
 async function startTunnel() {
   console.log(`[TUNNEL] Launching self-healing localtunnel for port ${PORT} (subdomain: ${SUBDOMAIN})...`);
-  consecutiveFailures = 0;
 
   try {
     const tunnel = await localtunnel({
