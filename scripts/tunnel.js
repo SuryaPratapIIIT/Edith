@@ -87,7 +87,7 @@ async function startTunnel() {
       scheduleReconnect(3000);
     });
 
-    // Active Health Monitor & Anti-Zombie Keepalive Ping every 10 seconds
+    // Active Health Monitor & Anti-Zombie Keepalive Ping every 25 seconds
     keepaliveTimer = setInterval(() => {
       if (!activeTunnel) return;
 
@@ -96,17 +96,16 @@ async function startTunnel() {
         `${activeTunnel.url}/health`,
         {
           headers: { 'bypass-tunnel-reminder': 'true' },
-          timeout: 4000
+          timeout: 10000
         },
         (res) => {
           if (res.statusCode === 200) {
             consecutiveFailures = 0;
           } else {
             consecutiveFailures++;
-            console.warn(`[TUNNEL WARN] Ping returned HTTP ${res.statusCode} (${consecutiveFailures}/2 failures)`);
-            if (consecutiveFailures >= 2) {
-              console.error('[TUNNEL UNRESPONSIVE] Detected zombie tunnel (503/error). Recycling immediately...');
-              scheduleReconnect(1000);
+            if (consecutiveFailures >= 4) {
+              console.error(`[TUNNEL UNRESPONSIVE] Ping returned HTTP ${res.statusCode} (${consecutiveFailures} consecutive failures). Recycling tunnel...`);
+              scheduleReconnect(1500);
             }
           }
         }
@@ -115,22 +114,20 @@ async function startTunnel() {
       req.on('timeout', () => {
         req.destroy();
         consecutiveFailures++;
-        console.warn(`[TUNNEL WARN] Ping timed out (${consecutiveFailures}/2 failures)`);
-        if (consecutiveFailures >= 2) {
-          console.error('[TUNNEL TIMEOUT] Tunnel unresponsive. Recycling immediately...');
-          scheduleReconnect(1000);
+        if (consecutiveFailures >= 4) {
+          console.error(`[TUNNEL TIMEOUT] Tunnel unresponsive after ${consecutiveFailures} attempts. Recycling tunnel...`);
+          scheduleReconnect(1500);
         }
       });
 
       req.on('error', (err) => {
         consecutiveFailures++;
-        console.warn(`[TUNNEL WARN] Ping network error: ${err.message} (${consecutiveFailures}/2 failures)`);
-        if (consecutiveFailures >= 2) {
-          console.error('[TUNNEL NETWORK FAILURE] Recycling immediately...');
-          scheduleReconnect(1000);
+        if (consecutiveFailures >= 4) {
+          console.error(`[TUNNEL ERROR] Network failure: ${err.message}. Recycling tunnel...`);
+          scheduleReconnect(1500);
         }
       });
-    }, 10000);
+    }, 25000);
 
   } catch (err) {
     console.error('[TUNNEL INIT ERROR]:', err.message);
