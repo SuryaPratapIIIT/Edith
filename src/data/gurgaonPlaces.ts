@@ -535,8 +535,8 @@ export function searchGurgaonPlaces(query: string): GurgaonPlace[] {
   const q = query.trim().toLowerCase();
   if (!q) return GURGAON_PLACES.slice(0, 15);
 
-  // Check if query is looking for a sector: "sector 56", "sec 43", "56", etc.
-  const sectorMatch = q.match(/(?:sec(?:tor)?\.?\s*|^)(\d{1,3})\b/);
+  // Check if query is looking for a sector: "sector 45", "sector-45", "sec 43", "56", etc.
+  const sectorMatch = q.match(/(?:sec(?:tor)?\.?[\s-]*|^)(\d{1,3})\b/i);
   const matchedSectorNum = sectorMatch ? parseInt(sectorMatch[1], 10) : null;
 
   const results: GurgaonPlace[] = [];

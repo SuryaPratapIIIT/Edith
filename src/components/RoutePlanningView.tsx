@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { GurgaonPlace, GURGAON_PLACES, getPlaceById } from '../data/gurgaonPlaces';
+import React, { useState, useEffect, useRef } from 'react';
+import { GurgaonPlace, GURGAON_PLACES, getPlaceById, searchGurgaonPlaces } from '../data/gurgaonPlaces';
+import { geocodeWithNominatim, mergePlaceLists, resolveTextToPlace } from '../services/geocodingService';
 import { PlannedJourney } from '../services/journeyService';
 import { BolnaTelemetryContext, bolnaVoiceService } from '../services/bolnaVoiceService';
 import { CallState } from '@bolna/web-call';
@@ -11,7 +12,11 @@ import {
   GitFork,
   Radio,
   Wifi,
-  BatteryMedium
+  BatteryMedium,
+  Loader2,
+  Navigation,
+  Building2,
+  Crosshair
 } from 'lucide-react';
 
 interface RoutePlanningViewProps {
@@ -44,27 +49,172 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
   const [isOriginDropdownOpen, setIsOriginDropdownOpen] = useState<boolean>(false);
   const [isDestDropdownOpen, setIsDestDropdownOpen] = useState<boolean>(false);
 
+  // Dynamic place search results
+  const [originResults, setOriginResults] = useState<GurgaonPlace[]>(() => searchGurgaonPlaces(journey.origin.name));
+  const [destResults, setDestResults] = useState<GurgaonPlace[]>(() => searchGurgaonPlaces(journey.destination.name));
+  const [isGeocodingOrigin, setIsGeocodingOrigin] = useState<boolean>(false);
+  const [isGeocodingDest, setIsGeocodingDest] = useState<boolean>(false);
+
+  // Active highlighted item index for keyboard navigation
+  const [originActiveIdx, setOriginActiveIdx] = useState<number>(0);
+  const [destActiveIdx, setDestActiveIdx] = useState<number>(0);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
   // Bolna FRIDAY Voice Call state
   const [callState, setCallState] = React.useState<CallState>('idle');
-  React.useEffect(() => {
+  useEffect(() => {
     const unsub = bolnaVoiceService.subscribeState((st) => setCallState(st));
     return unsub;
   }, []);
 
-  // Sync inputs whenever selected journey origin or destination changes
-  React.useEffect(() => {
+  // Sync inputs whenever selected journey origin or destination changes externally (e.g. Map Pick)
+  useEffect(() => {
     const timer = setTimeout(() => {
       setOriginSearch(journey.origin.name);
     }, 0);
     return () => clearTimeout(timer);
   }, [journey.origin.name]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setTimeout(() => {
       setDestSearch(journey.destination.name);
     }, 0);
     return () => clearTimeout(timer);
   }, [journey.destination.name]);
+
+  // Dynamic search & geocoding for Origin
+  useEffect(() => {
+    const local = searchGurgaonPlaces(originSearch);
+    setOriginResults(local);
+    setOriginActiveIdx(0);
+
+    const q = originSearch.trim();
+    if (!q || q.length < 2 || q.toLowerCase() === journey.origin.name.toLowerCase()) {
+      setIsGeocodingOrigin(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsGeocodingOrigin(true);
+      try {
+        const remote = await geocodeWithNominatim(q);
+        if (remote.length > 0) {
+          setOriginResults((prev) => mergePlaceLists(prev, remote));
+        }
+      } finally {
+        setIsGeocodingOrigin(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [originSearch, journey.origin.name]);
+
+  // Dynamic search & geocoding for Destination
+  useEffect(() => {
+    const local = searchGurgaonPlaces(destSearch);
+    setDestResults(local);
+    setDestActiveIdx(0);
+
+    const q = destSearch.trim();
+    if (!q || q.length < 2 || q.toLowerCase() === journey.destination.name.toLowerCase()) {
+      setIsGeocodingDest(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsGeocodingDest(true);
+      try {
+        const remote = await geocodeWithNominatim(q);
+        if (remote.length > 0) {
+          setDestResults((prev) => mergePlaceLists(prev, remote));
+        }
+      } finally {
+        setIsGeocodingDest(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [destSearch, journey.destination.name]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOriginDropdownOpen(false);
+        setIsDestDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Selection handlers
+  const handleSelectOrigin = (place: GurgaonPlace) => {
+    onSelectOriginPlace(place);
+    setOriginSearch(place.name);
+    setIsOriginDropdownOpen(false);
+  };
+
+  const handleSelectDest = (place: GurgaonPlace) => {
+    onSelectDestinationPlace(place);
+    setDestSearch(place.name);
+    setIsDestDropdownOpen(false);
+  };
+
+  // Keyboard navigation for Origin
+  const handleOriginKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (originResults.length > 0) {
+        handleSelectOrigin(originResults[originActiveIdx] || originResults[0]);
+      } else {
+        const resolved = await resolveTextToPlace(originSearch);
+        if (resolved) handleSelectOrigin(resolved);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setOriginActiveIdx((prev) => Math.min(prev + 1, Math.max(0, originResults.length - 1)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setOriginActiveIdx((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Escape') {
+      setIsOriginDropdownOpen(false);
+    }
+  };
+
+  // Keyboard navigation for Destination (handles Enter for "Sector 45", "Ambedkar Chowk", etc.)
+  const handleDestKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (destResults.length > 0) {
+        handleSelectDest(destResults[destActiveIdx] || destResults[0]);
+      } else {
+        const resolved = await resolveTextToPlace(destSearch);
+        if (resolved) handleSelectDest(resolved);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setDestActiveIdx((prev) => Math.min(prev + 1, Math.max(0, destResults.length - 1)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setDestActiveIdx((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Escape') {
+      setIsDestDropdownOpen(false);
+    }
+  };
+
+  // Start ride with auto-resolution of any uncommitted typed destination
+  const handleStartRide = async () => {
+    const trimmedDest = destSearch.trim();
+    if (trimmedDest && trimmedDest.toLowerCase() !== journey.destination.name.toLowerCase()) {
+      const resolved = await resolveTextToPlace(trimmedDest);
+      if (resolved) {
+        onSelectDestinationPlace(resolved);
+      }
+    }
+    onStartNavigation();
+  };
 
   const handleToggleFridayCall = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -90,7 +240,27 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
     }
   };
 
-  // Recent 3 destinations matching Image 1
+  // Category badge formatting
+  const getCategoryLabel = (category: GurgaonPlace['category']) => {
+    switch (category) {
+      case 'sector':
+        return 'Sector';
+      case 'junction':
+        return 'Chowk';
+      case 'hospital':
+        return 'Hospital';
+      case 'metro':
+        return 'Metro';
+      case 'mall':
+        return 'Mall';
+      case 'landmark':
+        return 'Landmark';
+      default:
+        return 'Location';
+    }
+  };
+
+  // Recent 3 destinations matching design
   const recentDestinations = [
     {
       id: 'place-rajiv-chowk',
@@ -116,7 +286,10 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
   ];
 
   return (
-    <div className="relative w-full max-w-[420px] mx-auto min-h-[780px] flex flex-col justify-between select-none pointer-events-none p-3 sm:p-4">
+    <div
+      ref={containerRef}
+      className="relative w-full max-w-[420px] lg:mx-0 min-h-[780px] flex flex-col justify-between select-none pointer-events-none p-2 sm:p-4 transition-all duration-300"
+    >
       {/* 1. Phone Top Status Bar + Main Card Container */}
       <div className="pointer-events-auto flex flex-col gap-3">
         {/* Smartphone Status Bar (11:00, Signal, Battery) */}
@@ -190,9 +363,22 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
                       setIsOriginDropdownOpen(true);
                     }}
                     onFocus={() => setIsOriginDropdownOpen(true)}
-                    placeholder="Your Location"
+                    onKeyDown={handleOriginKeyDown}
+                    placeholder="Your Location..."
                     className="bg-transparent text-white text-sm font-medium w-full focus:outline-none placeholder-gray-400 truncate"
                   />
+                  {originSearch && (
+                    <button
+                      onClick={() => {
+                        setOriginSearch('');
+                        setIsOriginDropdownOpen(true);
+                      }}
+                      className="p-1 text-gray-400 hover:text-white"
+                      title="Clear origin"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 <button
@@ -204,25 +390,37 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
 
                 {/* Dropdown for origin selection */}
                 {isOriginDropdownOpen && (
-                  <div className="absolute top-8 left-0 right-0 bg-[#061e3d] border border-blue-500/40 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
-                    {GURGAON_PLACES.filter((p) =>
-                      p.name.toLowerCase().includes(originSearch.toLowerCase())
-                    )
-                      .slice(0, 6)
-                      .map((p) => (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            onSelectOriginPlace(p);
-                            setOriginSearch(p.name);
-                            setIsOriginDropdownOpen(false);
-                          }}
-                          className="px-3 py-2 text-xs text-gray-200 hover:bg-[#1a73e8] hover:text-white cursor-pointer transition-colors border-b border-gray-800 last:border-none flex items-center justify-between"
-                        >
-                          <span>{p.name}</span>
-                          <span className="text-[10px] text-gray-400">{p.corridor || 'Gurugram'}</span>
+                  <div className="absolute top-8 left-0 right-0 bg-[#061e3d] border border-blue-500/40 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto">
+                    {isGeocodingOrigin && (
+                      <div className="px-3 py-1.5 text-[11px] text-blue-300 flex items-center gap-1.5 border-b border-gray-800 bg-[#082245]/80">
+                        <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                        <span>Searching places & sectors...</span>
+                      </div>
+                    )}
+                    {originResults.slice(0, 8).map((p, idx) => (
+                      <div
+                        key={p.id}
+                        onClick={() => handleSelectOrigin(p)}
+                        className={`px-3 py-2 text-xs cursor-pointer transition-colors border-b border-gray-800 last:border-none flex items-center justify-between ${
+                          idx === originActiveIdx
+                            ? 'bg-[#1a73e8] text-white'
+                            : 'text-gray-200 hover:bg-[#13427c]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <MapPin className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                          <span className="font-semibold truncate">{p.name}</span>
                         </div>
-                      ))}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-200 border border-blue-800/40 flex-shrink-0 ml-1">
+                          {getCategoryLabel(p.category)}
+                        </span>
+                      </div>
+                    ))}
+                    {originResults.length === 0 && !isGeocodingOrigin && (
+                      <div className="px-3 py-2 text-xs text-gray-400 text-center">
+                        Press Enter to resolve address
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -241,31 +439,59 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
                     setIsDestDropdownOpen(true);
                   }}
                   onFocus={() => setIsDestDropdownOpen(true)}
-                  placeholder="Search destination..."
+                  onKeyDown={handleDestKeyDown}
+                  placeholder="Search destination (e.g. Sector 45, Cyber Hub)..."
                   className="bg-transparent text-white text-sm font-medium w-full focus:outline-none placeholder-gray-400 truncate"
                 />
+                {destSearch && (
+                  <button
+                    onClick={() => {
+                      setDestSearch('');
+                      setIsDestDropdownOpen(true);
+                    }}
+                    className="p-1 text-gray-400 hover:text-white"
+                    title="Clear destination"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
 
                 {/* Dropdown for destination selection */}
                 {isDestDropdownOpen && (
-                  <div className="absolute top-8 left-0 right-0 bg-[#061e3d] border border-blue-500/40 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
-                    {GURGAON_PLACES.filter((p) =>
-                      p.name.toLowerCase().includes(destSearch.toLowerCase())
-                    )
-                      .slice(0, 6)
-                      .map((p) => (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            onSelectDestinationPlace(p);
-                            setDestSearch(p.name);
-                            setIsDestDropdownOpen(false);
-                          }}
-                          className="px-3 py-2 text-xs text-gray-200 hover:bg-[#1a73e8] hover:text-white cursor-pointer transition-colors border-b border-gray-800 last:border-none flex items-center justify-between"
-                        >
-                          <span>{p.name}</span>
-                          <span className="text-[10px] text-gray-400">{p.corridor || 'Gurugram'}</span>
+                  <div className="absolute top-8 left-0 right-0 bg-[#061e3d] border border-blue-500/40 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto">
+                    {isGeocodingDest && (
+                      <div className="px-3 py-1.5 text-[11px] text-blue-300 flex items-center gap-1.5 border-b border-gray-800 bg-[#082245]/80">
+                        <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                        <span>Searching places & sectors...</span>
+                      </div>
+                    )}
+                    {destResults.slice(0, 8).map((p, idx) => (
+                      <div
+                        key={p.id}
+                        onClick={() => handleSelectDest(p)}
+                        className={`px-3 py-2 text-xs cursor-pointer transition-colors border-b border-gray-800 last:border-none flex items-center justify-between ${
+                          idx === destActiveIdx
+                            ? 'bg-[#1a73e8] text-white'
+                            : 'text-gray-200 hover:bg-[#13427c]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <MapPin className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                          <div className="flex flex-col truncate">
+                            <span className="font-semibold truncate">{p.name}</span>
+                            <span className="text-[10px] text-gray-400 truncate">{p.corridor}</span>
+                          </div>
                         </div>
-                      ))}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-200 border border-blue-800/40 flex-shrink-0 ml-1">
+                          {getCategoryLabel(p.category)}
+                        </span>
+                      </div>
+                    ))}
+                    {destResults.length === 0 && !isGeocodingDest && (
+                      <div className="px-3 py-2 text-xs text-gray-400 text-center">
+                        Press Enter to plot on map
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -290,13 +516,14 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={() => onToggleMapPick('destination')}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors flex items-center gap-1.5 ${
                 isMapPickActive
-                  ? 'bg-cyan-400 text-black shadow-md'
+                  ? 'bg-cyan-400 text-black shadow-md animate-pulse'
                   : 'bg-[#1a73e8] hover:bg-blue-600 text-white'
               }`}
             >
-              {isMapPickActive ? 'Tap on Map...' : 'Map Pick'}
+              <Crosshair className="w-3.5 h-3.5" />
+              <span>{isMapPickActive ? 'Tap on Map...' : 'Map Pick'}</span>
             </button>
 
             <button
@@ -371,7 +598,7 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
 
           {/* Center: Large Bright Blue Button */}
           <button
-            onClick={onStartNavigation}
+            onClick={handleStartRide}
             disabled={isLoadingRoute}
             className="flex-1 bg-[#1a73e8] hover:bg-blue-600 text-white rounded-2xl py-3 px-4 shadow-lg flex flex-col items-center justify-center cursor-pointer transition-all active:scale-[0.98]"
           >
@@ -385,7 +612,7 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
 
           {/* Right Route Fork Button */}
           <button
-            onClick={onStartNavigation}
+            onClick={handleStartRide}
             title="Inspect road corridor"
             className="w-12 h-12 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-[#1a73e8] cursor-pointer shadow-sm transition-all flex-shrink-0"
           >

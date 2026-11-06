@@ -896,8 +896,12 @@ export default function App() {
         ceilingSpeed={currentPace.max_avg_kmh}
       />
 
-      {/* 2. Main Mobile Navigation Canvas with Underlying Dark Map */}
-      <div className="relative flex-1 w-full flex items-center justify-center overflow-hidden">
+      {/* 2. Main Navigation Canvas with Underlying Dark Map & Side-Docked Automotive Cards */}
+      <div className={`relative flex-1 w-full overflow-hidden flex transition-all duration-500 ${
+        currentScreen === 'navigation'
+          ? 'items-stretch justify-start p-1 sm:p-3 md:pl-5'
+          : 'items-center justify-center lg:justify-start lg:pl-6 p-1 sm:p-2'
+      }`}>
         {/* Full-Screen Underlying Dark-Themed Road Map */}
         <ExpresswayMap
           className="absolute inset-0 w-full h-full z-0"
@@ -916,8 +920,12 @@ export default function App() {
           showOverlays={false}
         />
 
-        {/* Floating Mobile Smartphone Frame / Automotive HUD Cards */}
-        <div className="relative z-10 w-full max-w-[440px] pointer-events-none flex flex-col justify-between py-2 sm:py-3 px-1 sm:px-2 min-h-[calc(100vh-50px)]">
+        {/* Floating Mobile Smartphone Frame / Automotive HUD Cards (Docks to side during active ride) */}
+        <div className={`relative z-10 w-full pointer-events-none flex flex-col justify-between py-1 sm:py-2 transition-all duration-500 ease-out ${
+          currentScreen === 'navigation'
+            ? 'max-w-[420px] md:max-w-[390px] h-full'
+            : 'max-w-[430px] min-h-[calc(100vh-50px)]'
+        }`}>
           {currentScreen === 'planning' ? (
             <RoutePlanningView
               journey={journey}
