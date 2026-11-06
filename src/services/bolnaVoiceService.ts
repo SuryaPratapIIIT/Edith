@@ -59,7 +59,7 @@ class BolnaVoiceService {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       try {
         window.speechSynthesis.cancel();
-      } catch (_) {}
+      } catch {}
     }
   }
 
@@ -247,7 +247,7 @@ class BolnaVoiceService {
         this.currentAlertAudio.pause();
         this.currentAlertAudio.currentTime = 0;
         this.currentAlertAudio.src = '';
-      } catch (_) {}
+      } catch {}
       this.currentAlertAudio = null;
     }
 
@@ -309,7 +309,7 @@ class BolnaVoiceService {
             }, 1200);
           }
         }
-      } catch (e) {
+      } catch {
         // Ignore polling errors
       }
     }, 350);
@@ -401,6 +401,67 @@ class BolnaVoiceService {
       await audio.play();
     } catch (e) {
       console.warn('[Friday Proactive Voice Alert Playback Error]:', e);
+    }
+  }
+
+
+  /**
+   * Speaks an announcement such as trip completion and challan summary.
+   * Delivers clear speech using Web SpeechSynthesis, ensures UI subtitles are updated,
+   * and returns a Promise that resolves when speech completes.
+   */
+  public async speakAnnouncement(text: string, language: VoiceLanguage = 'hinglish'): Promise<void> {
+    if (this.isMuted || !text || text.trim() === '') return;
+
+    // 1. Update UI subtitles / notification
+    this.notifySpeech(text, 'journey_complete');
+
+    // 2. Audible speech delivery
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      return new Promise<void>((resolve) => {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.98;
+          utterance.pitch = 1.0;
+
+          const isHinglish = language === 'hinglish';
+          const voices = window.speechSynthesis.getVoices();
+          const matchVoice = voices.find(
+            (v) =>
+              (isHinglish && (v.lang.toLowerCase().includes('hi') || v.lang.toLowerCase().includes('en-in'))) ||
+              (!isHinglish && v.lang.toLowerCase().includes('en-in')) ||
+              v.lang.toLowerCase().includes('en')
+          );
+          if (matchVoice) {
+            utterance.voice = matchVoice;
+          }
+
+          let isResolved = false;
+          const done = () => {
+            if (!isResolved) {
+              isResolved = true;
+              clearTimeout(fallbackTimer);
+              resolve();
+            }
+          };
+
+          const fallbackTimer = setTimeout(done, 5500);
+          utterance.onend = done;
+          utterance.onerror = done;
+
+          // Prevent Chromium garbage collection bug during playback
+          (window as any).__lastUtterance = utterance;
+
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          resolve();
+        }
+      });
     }
   }
 
@@ -502,7 +563,8 @@ class BolnaVoiceService {
           checkpoint_name: telemetryData?.checkpoint_name,
           test_case_id: telemetryData?.test_case_id,
           situation_notes: telemetryData?.situation_notes,
-          language: telemetryData?.language ?? 'hinglish'
+          language: telemetryData?.language ?? 'hinglish',
+          challan_count: telemetryData?.challan_count ?? 0
         })
       });
 
@@ -517,7 +579,7 @@ class BolnaVoiceService {
           }
         }
       }
-    } catch (e) {
+    } catch {
       // Quiet background analysis
     }
   }

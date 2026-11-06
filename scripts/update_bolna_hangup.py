@@ -11,7 +11,14 @@ if env_path.exists():
 
 api_key = os.getenv('BOLNA_API_KEY', '')
 agent_id = os.getenv('BOLNA_AGENT_ID', 'e629dcb5-36f8-4ef6-9748-8eff47c824e5')
-base_tunnel_url = sys.argv[1].rstrip('/') if len(sys.argv) > 1 else 'https://sweet-swan-74.loca.lt'
+base_tunnel_url = sys.argv[1].rstrip('/') if len(sys.argv) > 1 else 'https://velo-ai-copilot.loca.lt'
+
+# Save current active tunnel URL to backend directory for quick status checks
+try:
+    active_tunnel_file = Path(__file__).resolve().parent.parent / 'backend' / '.active_tunnel'
+    active_tunnel_file.write_text(base_tunnel_url, encoding='utf-8')
+except Exception as e:
+    pass
 
 # 1. Fetch current agent config
 get_req = urllib.request.Request(
@@ -26,6 +33,23 @@ api_tools = tools_config.get('api_tools', {})
 tools_list = api_tools.get('tools', [])
 tools_params = api_tools.get('tools_params', {})
 
+# Ensure get_live_telemetry tool is registered
+telemetry_tool = next((t for t in tools_list if t.get('name') == 'get_live_telemetry'), None)
+if not telemetry_tool:
+    telemetry_tool = {'key': 'custom_task', 'name': 'get_live_telemetry'}
+    tools_list.append(telemetry_tool)
+
+telemetry_tool['parameters'] = {
+    'type': 'object',
+    'required': [],
+    'properties': {}
+}
+telemetry_tool['description'] = (
+    "MANDATORY: Call this tool every time the driver asks about speed, camera distance, challan risk, "
+    "or when a proactive road alert or checkpoint trigger occurs to fetch real-time sensor metrics."
+)
+telemetry_tool['pre_call_message'] = "Checking live sensors..."
+
 # Ensure hangup_call tool is registered with strict trigger constraints
 hangup_tool = next((t for t in tools_list if t.get('name') == 'hangup_call'), None)
 if not hangup_tool:
@@ -37,8 +61,8 @@ hangup_tool['parameters'] = {
     'required': ['user_command'],
     'properties': {
         'user_command': {
-            'type': 'string',
-            'description': 'The explicit user phrase commanding to cut or hang up the call, e.g. "cut off the call"'
+          'type': 'string',
+          'description': 'The explicit user phrase commanding to cut or hang up the call, e.g. "cut off the call"'
         }
     }
 }
@@ -62,10 +86,19 @@ tools_params['hangup_call'] = {
     'pre_call_webhook_param': None
 }
 
-if 'get_live_telemetry' in tools_params:
-    tools_params['get_live_telemetry']['url'] = f'{base_tunnel_url}/api/live/status'
-    tools_params['get_live_telemetry']['headers'] = {'bypass-tunnel-reminder': 'true'}
-    tools_params['get_live_telemetry']['method'] = 'GET'
+# Always upsert get_live_telemetry — create if missing, update URL if present
+tools_params['get_live_telemetry'] = {
+    'url': f'{base_tunnel_url}/api/live/status',
+    'nodes': None,
+    'param': '{}',
+    'scope': None,
+    'method': 'GET',
+    'headers': {'bypass-tunnel-reminder': 'true'},
+    'api_token': None,
+    'pre_call_message': None,
+    'pre_call_webhook_url': None,
+    'pre_call_webhook_param': None
+}
 
 api_tools['tools'] = tools_list
 api_tools['tools_params'] = tools_params
@@ -88,6 +121,10 @@ You MUST call `get_live_telemetry` whenever the driver asks about:
 5. ETA & Trip Progress ('how much time', 'kitna time lagega', 'trip progress', 'where are we') -> Report `progress_percent`, `remaining_meters`, and `estimated_time_to_destination`.
 6. Checkpoints ('checkpoint status', 'right way or wrong way') -> Report `latest_checkpoint_name` and `latest_checkpoint_status_label`.
 
+# NO TECHNICAL ERROR TALK (TUNNEL / SENSOR FALLBACK):
+NEVER say words like 'tunnel error', 'tunnel unavailable', '503', 'server error', or technical jargon to the driver.
+If `get_live_telemetry` encounters any momentary network delay or error, immediately fallback to the session context (`user_data` provided at call start: `current_speed`, `posted_speed_limit`, `next_camera`, `section_name`) and reassure the driver: "Sensors syncing boss, you are cruising safely within the limit."
+
 # STRICT HANGUP PROTOCOL (`hangup_call`)
 Call `hangup_call` ONLY if the driver explicitly commands to cut or disconnect the call (e.g. 'cut the call', 'hang up', 'call cut kar do', 'bye friday').
 NEVER call `hangup_call` during normal questions, speed checks, camera queries, or silence!
@@ -106,6 +143,10 @@ system_prompt_hi = """# IDENTITY & PERSONA: FRIDAY (VELO AI LIVE CO-PILOT - HING
 2. कैमरे ('kitne cameras hain', 'camera kitne bache hain', 'next camera kitni door hai') -> `total_cameras`, `cleared_cameras` और `camera_nearby` बताएं (जैसे: 'Is route par total 7 cameras hain, jisme se 2 clear ho chuke hain.')।
 3. ओवरस्पीडिंग / चालान रिस्क ('kya mai overspeeding kar rha hu', 'safe hu kya') -> `exceeding_details` और `challan_risk` बताएं।
 4. टाइम / दूरी ('kitna time lagega', 'destination kab aayega') -> `estimated_time_to_destination` और `remaining_meters` बताएं।
+
+# तकनीकी त्रुटि का जिक्र कभी न करें (TUNNEL / SENSOR FALLBACK):
+ड्राइवर से कभी भी 'tunnel error', 'tunnel unavailable', '503', 'server problem' जैसे शब्द न बोलें।
+यदि `get_live_telemetry` में कोई क्षणिक रुकावट आए, तो कॉल की शुरुआत में मिले `user_data` (जैसे `current_speed`, `posted_speed_limit`, `next_camera`) के आधार पर स्वाभाविक रूप से बताएं: "सेंसर सिंक हो रहे हैं बॉस, आप सुरक्षित गति पर चल रहे हैं।"
 
 # कॉल काटने का नियम (`hangup_call`)
 सिर्फ और सिर्फ तभी `hangup_call` टूल कॉल करें जब ड्राइवर साफ शब्दों में कॉल काटने को कहे ('call cut kar do', 'cut the call', 'hang up', 'bye friday')।
@@ -140,4 +181,4 @@ put_req = urllib.request.Request(
 )
 
 with urllib.request.urlopen(put_req) as resp:
-    print('Bolna Cloud Agent updated with hangup_call tool and multilingual prompts! HTTP Status:', resp.status)
+    print('Bolna Cloud Agent updated with live telemetry tool, fallback rules, and hangup control! HTTP Status:', resp.status)

@@ -7,7 +7,7 @@
     "dev": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"node scripts/tunnel.js\"",
     "dev:frontend": "vite",
     "dev:backend": "python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload",
-    "dev:all": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\"",
+    "dev:all": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"node scripts/tunnel.js\"",
     "dev:full": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND,TUNNEL\" -c \"blue,green,magenta\" \"python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload\" \"vite\" \"node scripts/tunnel.js\"",
     "tunnel": "node scripts/tunnel.js",
     "build": "tsc -b && vite build",

@@ -5,7 +5,7 @@ import { ENV } from '../config/env';
 import { getPointAlongPolylineAtFraction } from '../engine/paceEngine';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair, Radio, ShieldCheck } from 'lucide-react';
+import { Crosshair } from 'lucide-react';
 
 interface ExpresswayMapProps {
   journey: PlannedJourney;
@@ -20,6 +20,8 @@ interface ExpresswayMapProps {
   isMapPickActive?: boolean;
   trackingMode?: 'simulated' | 'live_gps';
   onMapClick?: (lat: number, lon: number) => void;
+  className?: string;
+  showOverlays?: boolean;
 }
 
 /**
@@ -44,12 +46,14 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
   alert,
   isEnforcementActive,
   activeZone,
-  cameraFOV,
+  cameraFOV: _cameraFOV,
   hasSpotChallan,
   isFollowingVehicle,
   isMapPickActive = false,
   trackingMode = 'simulated',
-  onMapClick
+  onMapClick,
+  className,
+  showOverlays = false
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<L.Map | null>(null);
@@ -203,18 +207,22 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
       const isStartCam = activeZone?.startCamera.id === cam.id;
       const isEndCam = activeZone?.endCamera.id === cam.id;
 
-      const badgeBg = isStartCam ? '#0369a1' : isEndCam ? '#047857' : '#1e293b';
-      const borderColor = isStartCam ? '#38bdf8' : isEndCam ? '#34d399' : '#64748b';
+      
+      const zoneLen = activeZone ? (activeZone.length_m / 1000).toFixed(2) : '3.35';
+      const isC2 = idx === 1 || cam.name.toLowerCase().includes('atlas');
+      const camIconChar = isC2 ? '📷' : '🚗';
+      const camLabel = isC2 ? `C${idx + 1}: ${cam.name} (${zoneLen}km Zone)` : `C${idx + 1}: ${cam.name}`;
 
       const camIcon = L.divIcon({
         className: 'gantry-marker',
         html: `
-          <div style="background:${badgeBg};color:white;padding:3.5px 8px;border-radius:10px;border:2px solid ${borderColor};box-shadow:0 0 12px ${borderColor}80;display:flex;align-items:center;gap:4px;font-family:monospace;font-size:10px;font-weight:bold;white-space:nowrap;">
-            <span>📷 C${idx + 1}: ${cam.name} (${cam.limit_kmh} km/h)</span>
+          <div style="background:#0c3768;color:#ffffff;padding:4px 11px;border-radius:9999px;border:1.5px solid #2563eb;box-shadow:0 4px 14px rgba(0,0,0,0.5);display:flex;align-items:center;gap:6px;font-family:system-ui,-apple-system,sans-serif;font-size:11px;font-weight:700;white-space:nowrap;">
+            <span style="font-size:11px;">${camIconChar}</span>
+            <span>${camLabel}</span>
           </div>
         `,
-        iconSize: [160, 24],
-        iconAnchor: [80, 12]
+        iconSize: [190, 26],
+        iconAnchor: [95, 13]
       });
 
       const mCam = L.marker([cam.lat, cam.lon], { icon: camIcon, zIndexOffset: 400 })
@@ -233,7 +241,7 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
       }).bindPopup(`<b>${cam.name}</b><br/>15m Camera Field of View Spot Speed Radar Trap`).addTo(map);
       fovCirclesRef.current.push(fovCircle);
     });
-  }, [map, journey]); // Runs cleanly as soon as map instance is ready
+  }, [map, journey, activeZone]); // Runs cleanly as soon as map instance is ready
 
   // 3. Render Active Camera Enforcement Zone & 4 Checkpoints (Dynamic Overlay)
   useEffect(() => {
@@ -270,15 +278,17 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
 
       // Render the 4 Checkpoints along the active camera zone
       activeZone.checkpoints.slice(0, 3).forEach((cp) => {
+        const cpNum = Math.max(1, Math.round(cp.pct / 25));
         const cpIcon = L.divIcon({
           className: 'cp-pin',
           html: `
-            <div style="background:#090d16;color:#38bdf8;padding:3px 7px;border-radius:8px;border:1.5px solid #38bdf8;box-shadow:0 0 10px rgba(56,189,248,0.5);font-family:monospace;font-size:10px;font-weight:bold;white-space:nowrap;">
-              🏁 ${cp.label}
+            <div style="background:#0c3768;color:#ffffff;padding:4px 10px;border-radius:9999px;border:1.5px solid #2563eb;box-shadow:0 4px 14px rgba(0,0,0,0.5);display:flex;align-items:center;gap:5px;font-family:system-ui,-apple-system,sans-serif;font-size:11px;font-weight:700;white-space:nowrap;">
+              <span style="font-size:11px;">📷</span>
+              <span>CP ${cpNum} (${cp.pct}%)</span>
             </div>
           `,
-          iconSize: [85, 22],
-          iconAnchor: [42, 11]
+          iconSize: [105, 26],
+          iconAnchor: [52, 13]
         });
 
         const mCP = L.marker(cp.pos, { icon: cpIcon, zIndexOffset: 500 })
@@ -333,30 +343,21 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
       vehicleVectorHaloRef.current.setStyle({ color: alertColor, fillColor: alertColor });
     }
 
-    // Layer B: High-Impact 3D Vehicle Icon with Label and Rotating Navigation Chevron
+    // Layer B: High-Impact 3D Vehicle Icon with Label and Rotating Navigation Chevron (White Ellipse + Blue Arrow matching Image 2)
     const vehicleIcon = L.divIcon({
       className: 'live-vehicle-marker',
       html: `
         <div style="display:flex;flex-direction:column;align-items:center;pointer-events:none;">
-          <!-- Top Floating Callout Label -->
-          <div style="background:#050811;color:${alertColor};padding:3px 9px;border-radius:8px;border:2px solid ${alertColor};box-shadow:0 0 16px ${alertColor}90;font-family:monospace;font-size:10px;font-weight:900;letter-spacing:0.3px;white-space:nowrap;margin-bottom:6px;display:flex;align-items:center;gap:5px;">
-            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${alertColor};box-shadow:0 0 8px ${alertColor};"></span>
-            <span>YOUR VEHICLE (${Math.round(currentSpeed)} km/h)</span>
-          </div>
-
-          <!-- Animated Google Maps 3D Navigation Vehicle Chevron & Glow -->
-          <div style="position:relative;width:54px;height:54px;display:flex;align-items:center;justify-content:center;">
-            <!-- Inner Glowing Directional Vehicle Body -->
-            <div style="position:relative;width:40px;height:40px;border-radius:50%;background:#090d16;border:3px solid ${alertColor};box-shadow:0 0 24px ${alertColor};display:flex;align-items:center;justify-content:center;transform:rotate(${vehicleBearing}deg);transition:transform 0.15s ease-out;">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="${alertColor}" stroke="#ffffff" stroke-width="2" stroke-linejoin="round">
-                <path d="M12 2L19 21L12 17L5 21L12 2Z" />
-              </svg>
-            </div>
+          <!-- Translucent White Ellipse with Blue Directional Arrow -->
+          <div style="width:52px;height:38px;background:rgba(255,255,255,0.95);border-radius:24px;border:2px solid #ffffff;box-shadow:0 4px 18px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;transform:rotate(${vehicleBearing}deg);transition:transform 0.15s ease-out;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="#1a73e8" stroke="#1a73e8" stroke-width="1.5">
+              <path d="M12 2L19 21L12 17L5 21L12 2Z" />
+            </svg>
           </div>
         </div>
       `,
-      iconSize: [180, 90],
-      iconAnchor: [90, 60]
+      iconSize: [52, 38],
+      iconAnchor: [26, 19]
     });
 
     if (!vehicleMarkerRef.current) {
@@ -392,9 +393,10 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
   }, [map, journeyCovered_m, alert, isEnforcementActive, vehiclePos, vehicleBearing, isFollowingVehicle, hasSpotChallan, currentSpeed, progressFraction, journey.fullPolyline]);
 
   return (
-    <div className={`relative w-full h-[540px] lg:h-[620px] rounded-3xl overflow-hidden border border-gray-800 shadow-2xl bg-gray-950 flex flex-col ${isMapPickActive ? 'cursor-crosshair ring-2 ring-cyan-400/50' : ''}`}>
+    <div className={className || `relative w-full h-[540px] lg:h-[620px] rounded-3xl overflow-hidden border border-gray-800 shadow-2xl bg-gray-950 flex flex-col ${isMapPickActive ? 'cursor-crosshair ring-2 ring-cyan-400/50' : ''}`}>
       {/* Leaflet Map Canvas */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
+      {showOverlays && (<>
 
       {/* Top Left Floating HUD: Vehicle Tracking Lock & Live GPS Status */}
       <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-2 pointer-events-none">
@@ -460,6 +462,7 @@ export const ExpresswayMap: React.FC<ExpresswayMapProps> = ({
           <span>Center Vehicle</span>
         </button>
       </div>
+      </>)}
     </div>
   );
 };

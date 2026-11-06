@@ -278,23 +278,61 @@ class VoiceCoachService {
   }
 
   /**
-   * Full Journey Completion Voice Celebration
+   * Full Journey Completion Voice Celebration & Challan Verdict
+   * Speaks: "You have completed your ride and have X challans recorded."
+   * Then automatically hangs up the call with Friday.
    */
-  public triggerJourneyComplete(
+  public async triggerJourneyComplete(
     destName: string,
     totalDistKm: number,
     cameraCount: number,
-    hadChallan: boolean
-  ) {
-    if (this.isMuted) return;
-    this.playAlertChime(hadChallan ? 'amber' : 'green');
+    challanCount: number
+  ): Promise<void> {
+    const lang = this.currentLanguage;
+    let spokenText = '';
+    if (challanCount === 0) {
+      spokenText = lang === 'english'
+        ? 'You have completed your ride and have 0 challans recorded. Clean and safe trip!'
+        : 'Aapne apni ride complete kar li hai aur aapke 0 challan record hue hain. Shandaar aur safe trip!';
+    } else if (challanCount === 1) {
+      spokenText = lang === 'english'
+        ? 'You have completed your ride and have 1 challan recorded. Please review your trip summary.'
+        : 'Aapne apni ride complete kar li hai aur aapka 1 challan record hua hai. Trip summary check kar lijiye.';
+    } else {
+      spokenText = lang === 'english'
+        ? `You have completed your ride and have ${challanCount} challans recorded. Please review your trip summary.`
+        : `Aapne apni ride complete kar li hai aur aapke ${challanCount} challan record hue hain. Trip summary check kar lijiye.`;
+    }
+
+    if (!this.isMuted) {
+      this.playAlertChime(challanCount > 0 ? 'amber' : 'green');
+    }
+
+    // 1. Sync live completed journey state with Bolna backend
     bolnaVoiceService.triggerAgentSituation('journey_complete', {
       camera_nearby: destName,
       covered_m: totalDistKm * 1000,
-      challan_risk: hadChallan ? 'Violation Flagged on Route' : 'Zero Challan - Safe Journey',
-      situation_notes: `Arrived at ${destName}. Distance ${totalDistKm.toFixed(1)} km across ${cameraCount} cameras`,
-      language: this.currentLanguage
+      challan_risk: challanCount > 0 ? `${challanCount} Violation(s) Recorded` : 'Zero Challan - Safe Journey',
+      situation_notes: `Arrived at ${destName}. Distance ${totalDistKm.toFixed(1)} km across ${cameraCount} cameras. Challans: ${challanCount}`,
+      language: this.currentLanguage,
+      challan_count: challanCount
     });
+
+    // 2. Announce verdict audibly through Friday's voice co-pilot
+    if (!this.isMuted) {
+      await bolnaVoiceService.speakAnnouncement(spokenText, this.currentLanguage);
+    }
+
+    // 3. Automatically cut the call with Friday now that arrival and verdict are announced!
+    if (bolnaVoiceService.isCallActive() || bolnaVoiceService.isConnecting()) {
+      console.log('[Ride Complete] Automatically cutting call with Friday...');
+      await bolnaVoiceService.stopCall();
+      fetch('/api/bolna/hangup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'ride_completed' })
+      }).catch(() => {});
+    }
   }
 
   /**

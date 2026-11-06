@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   AlertLevel,
-  EnforcementSection,
   PaceStatusResult,
   VehicleClass,
   VoiceLanguage,
-  CameraFOVStatus,
   ChallanEvent
 } from './types/pace';
-import { pace_status, checkGantryPreAlert } from './engine/paceEngine';
+import { pace_status } from './engine/paceEngine';
 import {
   generateCheckpointWarning,
   generateSpotFOVWarning,
@@ -24,42 +22,55 @@ import {
   CameraEnforcementZone,
   RouteCameraSpot
 } from './services/journeyService';
-import { GurgaonPlace, getPlaceById, createCustomPlace } from './data/gurgaonPlaces';
+import { GurgaonPlace, createCustomPlace } from './data/gurgaonPlaces';
 import { gpsTrackingService, LiveGPSFix } from './services/gpsTrackingService';
-import { SpeedometerGauge } from './components/SpeedometerGauge';
-import { CheckpointTracker } from './components/CheckpointTracker';
 import { ExpresswayMap } from './components/ExpresswayMap';
-import { GoogleMapsNavBanner } from './components/GoogleMapsNavBanner';
-import { GoogleMapsBottomBar } from './components/GoogleMapsBottomBar';
-import { JourneyPlannerBar } from './components/JourneyPlannerBar';
-import { JourneySectionStepper, SectionSummaryResult } from './components/JourneySectionStepper';
+import { TopControlNavBar } from './components/TopControlNavBar';
+import { RoutePlanningView } from './components/RoutePlanningView';
+import { ActiveTripView } from './components/ActiveTripView';
+import type { SectionSummaryResult } from './components/JourneySectionStepper';
 import { JourneySummaryModal } from './components/JourneySummaryModal';
-import { BolnaVoiceControl } from './components/BolnaVoiceControl';
 import { PACE_CONFIG } from './config/env';
-import {
-  ShieldCheck,
-  Radio,
-  Compass,
-  Navigation,
-  Crosshair,
-  AlertTriangle,
-  FileText
-} from 'lucide-react';
 
 export default function App() {
   // 1. Planned Journey State (Unified Continuous Journey)
   const [journey, setJourney] = useState<PlannedJourney>(() =>
     planJourney('place-ambience', 'place-rajiv-chowk')
   );
+  const [currentScreen, setCurrentScreen] = useState<'planning' | 'navigation'>('planning');
+  const [tunnelOnline, setTunnelOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const checkTunnel = () => {
+      fetch('/api/tunnel/status').then(r => r.json()).then(data => setTunnelOnline(Boolean(data?.active && data?.status === 'healthy')))
+        .catch(() => setTunnelOnline(false));
+    };
+    checkTunnel();
+    const iv = setInterval(checkTunnel, 10000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const handleStartNavigation = () => {
+    setCurrentScreen('navigation');
+    setIsPlaying(true);
+    if (!bolnaVoiceService.isCallActive() && !bolnaVoiceService.isConnecting()) {
+      bolnaVoiceService.startCall(bolnaTelemetryContext).catch(() => {});
+    }
+  };
+
+  const handleStopTrip = () => {
+    setIsPlaying(false);
+    setCurrentScreen('planning');
+  };
 
   // Dynamic Routing, Real-Time GPS & Map Pick State
   const [isLoadingRoute, setIsLoadingRoute] = useState<boolean>(false);
   const [isMapPickActive, setIsMapPickActive] = useState<boolean>(false);
   const [mapPickTarget, setMapPickTarget] = useState<'origin' | 'destination' | null>(null);
   const [trackingMode, setTrackingMode] = useState<'simulated' | 'live_gps'>('simulated');
-  const [isLocatingUser, setIsLocatingUser] = useState<boolean>(false);
-  const [gpsNotice, setGpsNotice] = useState<string | null>(null);
-  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [_isLocatingUser, setIsLocatingUser] = useState<boolean>(false);
+  const [_gpsNotice, setGpsNotice] = useState<string | null>(null);
+  const [_gpsError, setGpsError] = useState<string | null>(null);
 
   // 2. Continuous Journey Telemetry (meters from trip start, seconds from trip start)
   const [currentSpeedThrottle, setCurrentSpeedThrottle] = useState<number>(70);
@@ -77,13 +88,13 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>('hinglish');
+  const [voiceLanguage, _setVoiceLanguage] = useState<VoiceLanguage>('hinglish');
 
   // 4. Zone Tracking & Challan State
   const [sectionHistory, setSectionHistory] = useState<SectionSummaryResult[]>([]);
   const [challanHistory, setChallanHistory] = useState<ChallanEvent[]>([]);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState<boolean>(false);
-  const zoneEntryElapsedRef = useRef<number>(0);
+  const [zoneEntryElapsed_s, setZoneEntryElapsed_s] = useState<number>(0);
   const currentZoneIndexRef = useRef<number | null>(null);
   const prevCoveredInZoneRef = useRef<number>(0);
   const firedCheckpointsRef = useRef<Set<number>>(new Set());
@@ -93,8 +104,8 @@ export default function App() {
   const zoneEntryTimesRef = useRef<Record<number, number>>({});
 
   // 5. Warnings and Spot FOV State
-  const [activeWarning, setActiveWarning] = useState<CheckpointWarning | null>(null);
-  const [warningHistory, setWarningHistory] = useState<CheckpointWarning[]>([]);
+  const [_activeWarning, setActiveWarning] = useState<CheckpointWarning | null>(null);
+  const [_warningHistory, setWarningHistory] = useState<CheckpointWarning[]>([]);
   const [hasSpotChallan, setHasSpotChallan] = useState<boolean>(false);
   const spotChallanTriggeredRef = useRef<boolean>(false);
   const lastAlertLevelRef = useRef<AlertLevel>('green');
@@ -110,9 +121,9 @@ export default function App() {
   } | null>(null);
 
   // Vehicle class and safety configs
-  const [vehicleClass, setVehicleClass] = useState<VehicleClass>('car');
-  const [safetyMargin, setSafetyMargin] = useState<number>(PACE_CONFIG.MARGIN);
-  const [amberGap, setAmberGap] = useState<number>(PACE_CONFIG.AMBER_GAP_KMH);
+  const vehicleClass: VehicleClass = 'car';
+  const safetyMargin = PACE_CONFIG.MARGIN;
+  const amberGap = PACE_CONFIG.AMBER_GAP_KMH;
 
   // Sync Voice Language & Mute
   useEffect(() => {
@@ -134,16 +145,6 @@ export default function App() {
   const distToNextCamera_m = nextCamera ? Math.max(0, nextCamera.journeyDistance_m - journeyCovered_m) : 0;
   const distToDestination_m = Math.max(0, journey.totalDistance_m - journeyCovered_m);
 
-  // Navigation Mode
-  let navMode: 'normal_routing' | 'camera_enforcement' | 'destination_reached' = 'normal_routing';
-  if (journeyCovered_m >= journey.totalDistance_m) {
-    navMode = 'destination_reached';
-  } else if (isEnforcementActive) {
-    navMode = 'camera_enforcement';
-  } else {
-    navMode = 'normal_routing';
-  }
-
   // Posted Limit for current stretch
   const postedLimit = activeZone ? activeZone.limit_kmh : 70;
 
@@ -151,7 +152,7 @@ export default function App() {
   useEffect(() => {
     if (activeZoneIndex !== currentZoneIndexRef.current) {
       currentZoneIndexRef.current = activeZoneIndex;
-      zoneEntryElapsedRef.current = journeyElapsed_s;
+      setZoneEntryElapsed_s(journeyElapsed_s);
       prevCoveredInZoneRef.current = 0;
       firedCheckpointsRef.current = new Set();
       setActiveWarning(null);
@@ -174,7 +175,7 @@ export default function App() {
 
   if (activeZone) {
     coveredInZone_m = Math.max(0, journeyCovered_m - activeZone.startJourneyDist_m);
-    elapsedInZone_s = Math.max(0.1, journeyElapsed_s - zoneEntryElapsedRef.current);
+    elapsedInZone_s = Math.max(0.1, journeyElapsed_s - zoneEntryElapsed_s);
 
     currentPace = pace_status(
       activeZone.length_m,
@@ -406,19 +407,70 @@ export default function App() {
     }
   }, [currentPace.alert, isEnforcementActive, currentPace.speed_kmh, currentPace.max_avg_kmh, postedLimit, currentPace.state]);
 
-  // Destination Arrival Hook
+  // Destination Arrival Hook: Announces challan verdict & automatically cuts the Friday call
+  const hasAnnouncedCompletionRef = useRef<boolean>(false);
   useEffect(() => {
-    if (journeyCovered_m >= journey.totalDistance_m && isPlaying) {
+    const isAtDestination = journeyCovered_m >= journey.totalDistance_m && journeyElapsed_s > 0;
+    if (isAtDestination && !hasAnnouncedCompletionRef.current) {
+      hasAnnouncedCompletionRef.current = true;
       setIsPlaying(false);
+      const totalChallans = challanHistory.length;
+
       voiceCoach.triggerJourneyComplete(
         journey.destination.name,
         journey.totalDistance_m / 1000,
         journey.cameras.length,
-        challanHistory.length > 0 || sectionHistory.some(s => s.hasViolation)
-      );
-      setIsSummaryModalOpen(true);
+        totalChallans
+      ).finally(() => {
+        setIsSummaryModalOpen(true);
+      });
+
+      // Safety guard: ensure summary modal opens within 4s regardless of audio drivers
+      const timer = setTimeout(() => {
+        setIsSummaryModalOpen(true);
+        if (bolnaVoiceService.isCallActive() || bolnaVoiceService.isConnecting()) {
+          bolnaVoiceService.stopCall().catch(() => {});
+        }
+      }, 4000);
+
+      return () => clearTimeout(timer);
     }
-  }, [journeyCovered_m, journey.totalDistance_m, isPlaying, challanHistory.length, sectionHistory]);
+  }, [journeyCovered_m, journey.totalDistance_m, journeyElapsed_s, challanHistory.length, journey.cameras.length, journey.destination.name]);
+
+  // Pre-Ride Route Context Sync:
+  // Fires immediately whenever a journey is loaded or changed (route switch, map pick, preset).
+  // Ensures FRIDAY always has the correct origin/destination/camera data even before "Start Ride".
+  // Sends speed = 0 so the backend session reflects a stationary pre-ride state, not the slider value.
+  useEffect(() => {
+    const firstCamera = journey.cameras[0] ?? null;
+    fetch('/api/telemetry/live', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: 'live_ride',
+        section_name: 'Open Gurugram Road Alignment',
+        speed_kmh: 0,
+        limit_kmh: 70,
+        ceiling_kmh: 70,
+        current_avg_kmh: 0,
+        banked_time_s: 0,
+        covered_m: 0,
+        remaining_m: Math.round(journey.totalDistance_m),
+        next_camera: firstCamera ? firstCamera.name : 'Upcoming GMDA ANPR Camera',
+        distance_to_camera_m: firstCamera ? Math.round(firstCamera.journeyDistance_m) : 0,
+        challan_risk: 'Zero Challan Risk (Clean Record)',
+        alert: 'green',
+        language: voiceLanguage,
+        route_origin: journey.origin.name,
+        route_destination: journey.destination.name,
+        total_journey_m: Math.round(journey.totalDistance_m),
+        journey_elapsed_s: 0,
+        total_cameras: journey.cameras.length,
+        cleared_cameras: 0,
+        challan_count: 0
+      })
+    }).catch(() => {}); // Non-blocking — silent fail if backend not yet up
+  }, [journey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Continuous 10 FPS Google Maps Real-Time Replay Loop
   useEffect(() => {
@@ -448,6 +500,7 @@ export default function App() {
 
   // Reset entire journey simulation
   const handleReset = () => {
+    hasAnnouncedCompletionRef.current = false;
     setIsPlaying(false);
     setTelemetry({ journeyCovered_m: 0, journeyElapsed_s: 0 });
     setSectionHistory([]);
@@ -457,7 +510,7 @@ export default function App() {
     completedZonesRef.current.clear();
     zoneEntryTimesRef.current = {};
     currentZoneIndexRef.current = null;
-    zoneEntryElapsedRef.current = 0;
+    setZoneEntryElapsed_s(0);
     prevCoveredInZoneRef.current = 0;
     firedCheckpointsRef.current = new Set();
     setHasSpotChallan(false);
@@ -550,27 +603,6 @@ export default function App() {
     }
   };
 
-  const handleSelectPreset = async (originId: string, destId: string) => {
-    const originPlace = getPlaceById(originId) || journey.origin;
-    const destPlace = getPlaceById(destId) || journey.destination;
-    setIsLoadingRoute(true);
-    try {
-      const newJourney = await planDynamicJourney(originPlace, destPlace);
-      setJourney(newJourney);
-      handleReset();
-      voiceCoach.triggerRoutePlanned(
-        newJourney.origin.name,
-        newJourney.destination.name,
-        newJourney.cameras.length,
-        newJourney.totalDistance_m / 1000
-      );
-    } catch (err) {
-      console.error('Failed to select preset:', err);
-    } finally {
-      setIsLoadingRoute(false);
-    }
-  };
-
   // 1-Click "My Location" GPS Resolver
   const handleUseCurrentLocation = async () => {
     setIsLocatingUser(true);
@@ -632,16 +664,6 @@ export default function App() {
     };
   }, [trackingMode, journey.fullPolyline]);
 
-  // Jump to specific camera section
-  const handleJumpToSection = (idx: number) => {
-    const targetZone = journey.enforcementZones[idx];
-    if (targetZone) {
-      setTelemetry(prev => ({
-        journeyCovered_m: targetZone.startJourneyDist_m,
-        journeyElapsed_s: prev.journeyElapsed_s
-      }));
-    }
-  };
 
   // Active checkpoint index (1, 2, 3, 4)
   const activeCheckpointIndex = activeZone
@@ -782,7 +804,9 @@ export default function App() {
     currentPace.max_avg_kmh,
     currentPace.currentAvg_kmh,
     currentPace.banked_time_s,
-    voiceLanguage
+    voiceLanguage,
+    journey,
+    journeyElapsed_s
   ]);
 
   // Gentle 5-Second Idle Keepalive Pulse: Ensures stationary vehicles refresh timestamp without spamming
@@ -837,7 +861,8 @@ export default function App() {
     distToNextCamera_m,
     challanHistory.length,
     voiceLanguage,
-    journey
+    journey,
+    journeyElapsed_s
   ]);
 
   // Handle Play/Pause with automatic Bolna AI Agent (FRIDAY) session launch
@@ -852,219 +877,90 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black">
-      {/* Top Streamlined Header Bar */}
-      <header className="sticky top-0 z-50 bg-gray-950/90 backdrop-blur-xl border-b border-gray-800/80 px-4 lg:px-8 py-3">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-[0_0_18px_rgba(6,182,212,0.4)] border border-cyan-400/30">
-              <Compass className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black font-mono tracking-wider bg-gradient-to-r from-cyan-300 via-teal-200 to-white bg-clip-text text-transparent">
-                VELO_AI
-              </h1>
-            </div>
-          </div>
+    <div className="min-h-screen bg-[#07090e] text-gray-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black overflow-x-hidden">
+      {/* 1. Upper Navbar: Speed Throttle, Stop/Start, Multipliers, Driver Mode & Screen Switcher */}
+      <TopControlNavBar
+        currentScreen={currentScreen}
+        onChangeScreen={setCurrentScreen}
+        currentSpeedThrottle={currentSpeedThrottle}
+        onChangeSpeedThrottle={setCurrentSpeedThrottle}
+        isPlaying={isPlaying}
+        onTogglePlay={handleTogglePlay}
+        onReset={handleReset}
+        playbackSpeed={playbackSpeed}
+        onChangePlaybackSpeed={setPlaybackSpeed}
+        trackingMode={trackingMode}
+        onToggleTrackingMode={setTrackingMode}
+        tunnelOnline={tunnelOnline}
+        postedLimit={postedLimit}
+        ceilingSpeed={currentPace.max_avg_kmh}
+      />
 
-          <div className="flex items-center gap-2 text-xs font-mono flex-wrap sm:flex-nowrap">
-            {/* Bolna Voice AI Agent (FRIDAY) Live Control */}
-            <BolnaVoiceControl telemetryContext={bolnaTelemetryContext} />
-
-            {/* Live Challan Status Pill */}
-            <button
-              onClick={() => setIsSummaryModalOpen(true)}
-              className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
-                challanHistory.length > 0
-                  ? 'bg-red-950/90 border-red-500 text-red-200 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse'
-                  : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60'
-              }`}
-            >
-              {challanHistory.length > 0 ? (
-                <>
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                  <span className="font-bold">
-                    {challanHistory.length} Challan Risk{challanHistory.length > 1 ? 's' : ''} in Region
-                  </span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Zero Challan Risk · Safe</span>
-                </>
-              )}
-            </button>
-
-            {sectionHistory.length > 0 && (
-              <button
-                onClick={() => setIsSummaryModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-gray-900 hover:bg-gray-850 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.2)]"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Trip Verdict ({sectionHistory.length} cleared)</span>
-              </button>
-            )}
-
-            <div className="bg-gray-900/90 px-3 py-1.5 rounded-xl border border-gray-800 text-gray-300 flex items-center gap-2">
-              <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-              <span>{(journeyCovered_m / 1000).toFixed(1)} / {(journey.totalDistance_m / 1000).toFixed(1)} km</span>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Navigation Canvas */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col gap-4">
-        {/* 1. Origin & Destination Selector Bar */}
-        <JourneyPlannerBar
+      {/* 2. Main Mobile Navigation Canvas with Underlying Dark Map */}
+      <div className="relative flex-1 w-full flex items-center justify-center overflow-hidden">
+        {/* Full-Screen Underlying Dark-Themed Road Map */}
+        <ExpresswayMap
+          className="absolute inset-0 w-full h-full z-0"
           journey={journey}
-          activeSectionIndex={activeZone?.sectionIndex ?? 0}
-          isLoadingRoute={isLoadingRoute}
-          isMapPickActive={isMapPickActive}
-          mapPickTarget={mapPickTarget}
-          trackingMode={trackingMode}
-          isLocatingUser={isLocatingUser}
-          gpsNotice={gpsNotice}
-          gpsError={gpsError}
-          onToggleTrackingMode={setTrackingMode}
-          onUseCurrentLocation={handleUseCurrentLocation}
-          onToggleMapPick={handleToggleMapPick}
-          onSelectOriginPlace={handleSelectOriginPlace}
-          onSelectDestinationPlace={handleSelectDestinationPlace}
-          onSwapPlaces={handleSwapPlaces}
-          onSelectPreset={handleSelectPreset}
-        />
-
-        {/* 2. Top Turn / Maneuver Banner */}
-        <GoogleMapsNavBanner
-          navMode={navMode}
-          journey={journey}
-          activeZone={activeZone}
-          nextCamera={nextCamera}
-          distToNextCamera_m={distToNextCamera_m}
-          currentSpeed_kmh={currentSpeedThrottle}
-          ceilingSpeed_kmh={currentPace.max_avg_kmh}
-          currentAvg_kmh={currentPace.currentAvg_kmh}
-          postedLimit={postedLimit}
+          journeyCovered_m={journeyCovered_m}
+          currentSpeed={currentSpeedThrottle}
           alert={currentPace.alert}
-          activeCheckpointIndex={activeCheckpointIndex}
+          isEnforcementActive={isEnforcementActive}
+          activeZone={activeZone}
           cameraFOV={currentPace.cameraFOV}
-          hasSpotChallan={hasSpotChallan || challanHistory.some(c => c.type === 'spot_challan')}
-          challanHistory={challanHistory}
-          destinationName={journey.destination.name}
-          distToDestination_m={distToDestination_m}
-          onOpenReport={() => setIsSummaryModalOpen(true)}
-        />
-
-        {/* 3. Central Cockpit Layout: Speedometer & Checkpoints (Left) + Leaflet Full Map (Right) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left Column: Automotive Cockpit Instruments (4 cols) */}
-          <div className="lg:col-span-4 flex flex-col gap-4">
-            <SpeedometerGauge
-              currentSpeed={currentSpeedThrottle}
-              ceilingSpeed={currentPace.max_avg_kmh}
-              postedLimit={postedLimit}
-              alert={currentPace.alert}
-              state={currentPace.state}
-              cameraFOV={currentPace.cameraFOV}
-              hasSpotChallan={hasSpotChallan || challanHistory.some(c => c.type === 'spot_challan')}
-              challanHistory={challanHistory}
-            />
-
-            {/* Checkpoint Tracker is active only inside camera zones */}
-            {isEnforcementActive && activeZone ? (
-              <CheckpointTracker
-                pace={currentPace}
-                sectionDistance_m={activeZone.length_m}
-                activeWarning={activeWarning}
-                warningHistory={warningHistory}
-                onDismissWarning={() => setActiveWarning(null)}
-                hasSpotChallan={hasSpotChallan}
-              />
-            ) : (
-              <div className="bg-gray-900/90 rounded-2xl border border-gray-800 p-4 shadow-xl backdrop-blur-md flex flex-col gap-3 font-mono">
-                <div className="flex items-center gap-2 text-cyan-400">
-                  <Navigation className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">
-                    Normal Road Navigation
-                  </span>
-                </div>
-                <p className="text-xs text-gray-300 leading-relaxed">
-                  You are cruising on open road alignment outside ANPR camera traps. Average-speed enforcement is paused until entering the next camera gantry.
-                </p>
-                {nextCamera && (
-                  <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800 flex items-center justify-between text-xs">
-                    <span className="text-gray-400">Next ANPR Camera:</span>
-                    <span className="font-bold text-cyan-300">
-                      {nextCamera.name} (in {(distToNextCamera_m / 1000).toFixed(1)} km)
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Right Column: Google Maps Seamless Viewport (8 cols) */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
-            <ExpresswayMap
-              journey={journey}
-              journeyCovered_m={journeyCovered_m}
-              currentSpeed={currentSpeedThrottle}
-              alert={currentPace.alert}
-              isEnforcementActive={isEnforcementActive}
-              activeZone={activeZone}
-              cameraFOV={currentPace.cameraFOV}
-              hasSpotChallan={hasSpotChallan}
-              isFollowingVehicle={isFollowingVehicle}
-              isMapPickActive={isMapPickActive}
-              trackingMode={trackingMode}
-              onMapClick={handleMapClick}
-            />
-          </div>
-        </div>
-
-        {/* 4. Google Maps Bottom Bar: ETA, Distance Left, Speed Slider & Controls */}
-        <GoogleMapsBottomBar
-          isPlaying={isPlaying}
-          onTogglePlay={handleTogglePlay}
-          onReset={handleReset}
-          playbackSpeed={playbackSpeed}
-          onChangePlaybackSpeed={setPlaybackSpeed}
-          currentSpeedThrottle={currentSpeedThrottle}
-          onChangeSpeedThrottle={setCurrentSpeedThrottle}
-          postedLimit={postedLimit}
-          remainingDistance_m={distToDestination_m}
-          totalDistance_m={journey.totalDistance_m}
-          straightDisplacement_m={journey.straightDisplacement_m}
-          detourPct={journey.detourPct}
-          elapsed_s={journeyElapsed_s}
-          destinationName={journey.destination.name}
-          isMuted={isMuted}
-          onToggleMute={() => setIsMuted(!isMuted)}
-          voiceLanguage={voiceLanguage}
-          onChangeVoiceLanguage={setVoiceLanguage}
+          hasSpotChallan={hasSpotChallan}
           isFollowingVehicle={isFollowingVehicle}
-          onToggleFollow={() => setIsFollowingVehicle(!isFollowingVehicle)}
+          isMapPickActive={isMapPickActive}
+          trackingMode={trackingMode}
+          onMapClick={handleMapClick}
+          showOverlays={false}
         />
-      </main>
 
-      {/* Clean Minimal Footer */}
-      <footer className="bg-gray-950 border-t border-gray-800/80 px-4 py-3 mt-auto">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-gray-500">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>VELO_AI · Real-Time Speed Compliance & ANPR Navigation</span>
-          </div>
-
-          <div className="flex items-center gap-3 text-[11px]">
-            <span>Active Camera Pacing</span>
-            <span>•</span>
-            <span>Live Voice Guidance</span>
-          </div>
+        {/* Floating Mobile Smartphone Frame / Automotive HUD Cards */}
+        <div className="relative z-10 w-full max-w-[440px] pointer-events-none flex flex-col justify-between py-2 sm:py-3 px-1 sm:px-2 min-h-[calc(100vh-50px)]">
+          {currentScreen === 'planning' ? (
+            <RoutePlanningView
+              journey={journey}
+              isLoadingRoute={isLoadingRoute}
+              isMapPickActive={isMapPickActive}
+              onToggleMapPick={handleToggleMapPick}
+              onUseCurrentLocation={handleUseCurrentLocation}
+              onSelectOriginPlace={handleSelectOriginPlace}
+              onSelectDestinationPlace={handleSelectDestinationPlace}
+              onSwapPlaces={handleSwapPlaces}
+              onStartNavigation={handleStartNavigation}
+              bolnaTelemetryContext={bolnaTelemetryContext}
+            />
+          ) : (
+            <ActiveTripView
+              journey={journey}
+              currentSpeed={currentSpeedThrottle}
+              postedLimit={postedLimit}
+              ceilingSpeed={currentPace.max_avg_kmh}
+              alert={currentPace.alert}
+              activeZone={activeZone}
+              activeCheckpointIndex={activeCheckpointIndex}
+              nextCamera={nextCamera}
+              distToNextCamera_m={distToNextCamera_m}
+              distToDestination_m={distToDestination_m}
+              journeyCovered_m={journeyCovered_m}
+              journeyElapsed_s={journeyElapsed_s}
+              challanHistory={challanHistory}
+              isPlaying={isPlaying}
+              isMuted={isMuted}
+              onTogglePlay={handleTogglePlay}
+              onToggleMute={() => setIsMuted(!isMuted)}
+              onCenterVehicle={() => setIsFollowingVehicle(true)}
+              onStopTrip={handleStopTrip}
+              onOpenRoutePlanner={() => setCurrentScreen('planning')}
+              bolnaTelemetryContext={bolnaTelemetryContext}
+              onOpenReport={() => setIsSummaryModalOpen(true)}
+            />
+          )}
         </div>
-      </footer>
+      </div>
 
-      {/* Journey Verdict Report Modal */}
+      {/* 3. Journey Verdict Report Modal */}
       <JourneySummaryModal
         isOpen={isSummaryModalOpen}
         onClose={() => setIsSummaryModalOpen(false)}

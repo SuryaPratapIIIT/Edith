@@ -15,7 +15,7 @@
  */
 
 import { EnforcementSection, Gantry } from '../types/pace';
-import { GurgaonPlace, GURGAON_PLACES, getPlaceById, createCustomPlace } from '../data/gurgaonPlaces';
+import { GurgaonPlace, GURGAON_PLACES, getPlaceById } from '../data/gurgaonPlaces';
 import { haversine_m, computePolylineCumulativeDistances, getPointAlongPolylineAtFraction } from '../engine/paceEngine';
 import { getDrivingRoute, routeViaArterialGraph, projectPointToSegment } from './roadRoutingService';
 import gantriesData from '../data/gantries.json';

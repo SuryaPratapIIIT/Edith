@@ -8,8 +8,9 @@ Provides:
   GET  /api/gantries/sections                – All enforcement sections derived from gantries
   GET  /health                               – Liveness probe
 """
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 import time
 import json
@@ -69,6 +70,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Localtunnel Bypass Middleware ────────────────────────────────────────────
+# Localtunnel shows an interstitial HTML reminder page to any request that lacks
+# the "bypass-tunnel-reminder" header.  Bolna's cloud servers send this header
+# on every tool call, but to be safe we also echo it back on EVERY response so
+# that the tunnel CDN never blocks a reply mid-flight.
+class TunnelBypassMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["bypass-tunnel-reminder"] = "true"
+        response.headers["ngrok-skip-browser-warning"] = "true"
+        return response
+
+app.add_middleware(TunnelBypassMiddleware)
 
 # ─── Verified GMDA NH-48 Gantry Dataset with JSON File Fallback ──────────────
 DEFAULT_GANTRIES = [
@@ -192,8 +207,52 @@ class LiveTelemetryPayload(BaseModel):
 class BolnaSessionRequest(BaseModel):
     user_data: Optional[dict] = None
 
+tunnel_subprocess = None
+
+async def check_tunnel_healthy(timeout: float = 2.0) -> tuple[bool, str]:
+    active_tunnel_file = Path(__file__).resolve().parent / ".active_tunnel"
+    tunnel_url = "https://velo-ai-copilot.loca.lt"
+    if active_tunnel_file.exists():
+        content = active_tunnel_file.read_text(encoding="utf-8").strip()
+        if content:
+            tunnel_url = content
+    try:
+        async with httpx.AsyncClient(headers={"bypass-tunnel-reminder": "true"}) as client:
+            resp = await client.get(f"{tunnel_url}/health", timeout=timeout)
+            return (resp.status_code == 200, tunnel_url)
+    except Exception:
+        return (False, tunnel_url)
+
+def spawn_tunnel_background():
+    global tunnel_subprocess
+    import subprocess
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / "tunnel.js"
+    root_dir = Path(__file__).resolve().parent.parent
+    if script_path.exists():
+        try:
+            tunnel_subprocess = subprocess.Popen(
+                ["node", str(script_path)],
+                cwd=str(root_dir)
+            )
+            print("[TUNNEL] Auto-spawned background tunnel supervisor from backend.")
+        except Exception as e:
+            print(f"[TUNNEL ERROR] Failed to auto-spawn tunnel: {e}")
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/tunnel/status")
+async def get_tunnel_status():
+    healthy, t_url = await check_tunnel_healthy(timeout=2.0)
+    return {
+        "active": healthy,
+        "url": t_url,
+        "status": "healthy" if healthy else "offline"
+    }
+
+@app.post("/api/tunnel/restart")
+async def restart_tunnel_endpoint():
+    spawn_tunnel_background()
+    return {"status": "restarting"}
 
 @app.post("/api/bolna/session")
 async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
@@ -207,6 +266,11 @@ async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
         raise HTTPException(status_code=500, detail="BOLNA_AGENT_ID not configured in backend/.env")
 
     user_data = (req.user_data if req else {}) or {}
+
+    # Automatically ensure tunnel is online before session connects
+    healthy, _ = await check_tunnel_healthy(timeout=1.5)
+    if not healthy:
+        spawn_tunnel_background()
 
     headers = {
         "Authorization": f"Bearer {BOLNA_API_KEY}",
@@ -783,6 +847,7 @@ class AnalyzeSituationRequest(BaseModel):
     test_case_id: Optional[str] = None
     situation_notes: Optional[str] = None
     language: Optional[str] = "hinglish"
+    challan_count: Optional[int] = 0
 
 
 @app.post("/api/bolna/analyze-situation")
@@ -871,10 +936,22 @@ async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
             spoken = f"Route active ho gaya boss: {round(remaining / 1000, 1)} kilometer path par ANPR radar network live hai."
 
     elif req.event_type == "journey_complete":
-        if lang == "english":
-            spoken = f"Destination reached safely: Total {round(covered / 1000, 1)} km completed with clean ANPR compliance. Zero challans!"
+        ch_count = req.challan_count if req.challan_count is not None else 0
+        if ch_count == 0:
+            if lang == "english":
+                spoken = f"You have completed your ride and have 0 challans recorded. Clean and safe trip!"
+            else:
+                spoken = f"Aapne apni ride complete kar li hai aur aapke 0 challan record hue hain. Shandaar aur safe trip!"
+        elif ch_count == 1:
+            if lang == "english":
+                spoken = f"You have completed your ride and have 1 challan recorded. Please review your trip summary."
+            else:
+                spoken = f"Aapne apni ride complete kar li hai aur aapka 1 challan record hua hai. Trip summary check kar lijiye."
         else:
-            spoken = f"Safalta purvak destination pahunch gaye boss: Total {round(covered / 1000, 1)} kilometer clean ANPR compliance ke sath clear hue!"
+            if lang == "english":
+                spoken = f"You have completed your ride and have {ch_count} challans recorded. Please review your trip summary."
+            else:
+                spoken = f"Aapne apni ride complete kar li hai aur aapke {ch_count} challan record hue hain. Trip summary check kar lijiye."
 
     elif req.event_type == "section_transition":
         if lang == "english":

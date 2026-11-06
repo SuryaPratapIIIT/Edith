@@ -4,8 +4,6 @@ import { SectionSummaryResult } from './JourneySectionStepper';
 import { ChallanEvent } from '../types/pace';
 import {
   CheckCircle2,
-  AlertTriangle,
-  ShieldCheck,
   Trophy,
   RotateCcw,
   X,

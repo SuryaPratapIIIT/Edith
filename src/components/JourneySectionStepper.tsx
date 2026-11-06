@@ -1,7 +1,6 @@
 import React from 'react';
-import { EnforcementSection, Gantry } from '../types/pace';
 import { PlannedJourney } from '../services/journeyService';
-import { Camera, CheckCircle2, ChevronRight, Flag, ShieldCheck, Zap, AlertTriangle } from 'lucide-react';
+import { Camera, CheckCircle2, ChevronRight, AlertTriangle } from 'lucide-react';
 
 export interface SectionSummaryResult {
   sectionIndex: number;

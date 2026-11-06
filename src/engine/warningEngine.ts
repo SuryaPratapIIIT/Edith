@@ -10,7 +10,7 @@
  *  CP-4: 100% of section road distance (exit gantry)
  */
 
-import type { AlertLevel, VoiceLanguage } from '../types/pace';
+import type { VoiceLanguage } from '../types/pace';
 
 export type CheckpointIndex = 1 | 2 | 3 | 4;
 export type WarningUrgency = 'critical' | 'warn' | 'caution' | 'ok' | 'done';
@@ -126,7 +126,7 @@ export function generateCheckpointWarning(params: {
     banked_time_s,
     remaining_m,
     limit_kmh,
-    elapsed_s,
+    elapsed_s: _elapsed_s,
     hasSpotChallan = false,
   } = params;
 
@@ -137,8 +137,6 @@ export function generateCheckpointWarning(params: {
   const bankAbs = Math.abs(Math.round(banked_time_s));
   const bankSign = banked_time_s >= 0 ? 'ahead' : 'deficit';
   const remainKm = (remaining_m / 1000).toFixed(1);
-  const elapsedMin = Math.floor(elapsed_s / 60);
-  const elapsedSec = Math.round(elapsed_s % 60);
 
   let title = '';
   let hinglish = '';
