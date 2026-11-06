@@ -343,8 +343,7 @@ class BolnaVoiceService {
    * speakers unprompted, without robotic browser TTS or synthetic second voices.
    */
   public async speakProactiveVoiceAlert(text: string, language: VoiceLanguage = 'hinglish'): Promise<void> {
-    // If call is NOT currently active (e.g. user cut the call), NEVER play any voice audio!
-    if (!this.isCallActive() || this.isMuted) return;
+    if (this.isMuted) return;
     if (!text || text.trim() === '') return;
 
     try {
@@ -369,11 +368,6 @@ class BolnaVoiceService {
         return;
       }
 
-      // Re-verify call is still active after network fetch
-      if (!this.isCallActive()) {
-        return;
-      }
-
       const blob = await res.blob();
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
@@ -391,22 +385,20 @@ class BolnaVoiceService {
         if (this.currentAlertAudio === audio) {
           this.currentAlertAudio = null;
         }
-        if (this.isCallActive() && !this.isMuted) {
+        if (wasCallActive && !prevMuted) {
           this.call?.setMuted(false);
         }
       };
 
       audio.onerror = () => {
         URL.revokeObjectURL(audioUrl);
-        if (this.isCallActive() && !this.isMuted) {
+        if (this.currentAlertAudio === audio) {
+          this.currentAlertAudio = null;
+        }
+        if (wasCallActive && !prevMuted) {
           this.call?.setMuted(false);
         }
       };
-
-      if (!this.isCallActive()) {
-        URL.revokeObjectURL(audioUrl);
-        return;
-      }
 
       await audio.play();
     } catch (e) {
@@ -508,10 +500,13 @@ class BolnaVoiceService {
       ? `checkpoint_${telemetryData?.checkpoint_index}` 
       : eventType === 'camera_100m'
       ? `camera_100m_${telemetryData?.camera_nearby}`
+      : eventType === 'speed_alert'
+      ? `speed_alert_${telemetryData?.alert}`
       : eventType;
 
-    // Throttle identical triggers within 2 seconds
-    if (this.lastTriggerEvent === throttleKey && now - this.lastTriggerTime < 2000) {
+    // Throttle identical triggers (3s for speed status, 2s for others)
+    const minInterval = eventType === 'speed_alert' ? 3000 : 2000;
+    if (this.lastTriggerEvent === throttleKey && now - this.lastTriggerTime < minInterval) {
       return;
     }
     this.lastTriggerEvent = throttleKey;
@@ -583,8 +578,16 @@ class BolnaVoiceService {
         if (data.spoken_text) {
           // Update visual UI subtitles / notifications
           this.notifySpeech(data.spoken_text, eventType);
-          // Proactively speak in Friday's warm voice unprompted ONLY if the call is currently ACTIVE!
-          if (this.isCallActive() && (eventType === 'camera_100m' || eventType === 'checkpoint' || eventType === 'spot_violation' || eventType === 'speed_violation')) {
+          // Proactively speak in Friday's warm voice unprompted for road status and camera alerts
+          if (
+            eventType === 'camera_100m' ||
+            eventType === 'checkpoint' ||
+            eventType === 'spot_violation' ||
+            eventType === 'speed_violation' ||
+            eventType === 'speed_alert' ||
+            eventType === 'route_planned' ||
+            eventType === 'status_update'
+          ) {
             this.speakProactiveVoiceAlert(data.spoken_text, telemetryData?.language ?? 'hinglish');
           }
         }
