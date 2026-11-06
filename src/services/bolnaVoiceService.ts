@@ -206,7 +206,7 @@ class BolnaVoiceService {
 
     try {
       this.call = new BolnaWebCall({
-        sessionUrl: '/api/bolna/session',
+        sessionUrl: apiUrl('/api/bolna/session'),
         userData
       });
 
