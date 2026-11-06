@@ -11,7 +11,7 @@
 export interface GurgaonPlace {
   id: string;
   name: string;
-  category: 'junction' | 'metro' | 'landmark' | 'expressway_entry' | 'hospital' | 'techpark' | 'sector' | 'custom';
+  category: 'junction' | 'metro' | 'landmark' | 'expressway_entry' | 'hospital' | 'techpark' | 'sector' | 'custom' | 'mall';
   corridor: string;
   lat: number;
   lon: number;

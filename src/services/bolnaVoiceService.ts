@@ -55,6 +55,7 @@ class BolnaVoiceService {
   private userMicStream: MediaStream | null = null;
   private lastTriggerTime: number = 0;
   private lastTriggerEvent: string = '';
+  private lastAgentSpeechTime: number = 0;
   private hangupPollTimer: any = null;
   private callSessionStartTime: number = 0;
 

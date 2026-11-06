@@ -14,7 +14,7 @@ import {
   CheckpointWarning
 } from './engine/warningEngine';
 import { voiceCoach } from './services/voiceCoach';
-import { bolnaVoiceService } from './services/bolnaVoiceService';
+import { bolnaVoiceService, BolnaTelemetryContext } from './services/bolnaVoiceService';
 import {
   planJourney,
   planDynamicJourney,
