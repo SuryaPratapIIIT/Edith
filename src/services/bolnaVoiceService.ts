@@ -12,6 +12,7 @@
 
 import { BolnaWebCall, CallState, CallError } from '@bolna/web-call';
 import { VoiceLanguage } from '../types/pace';
+import { apiUrl } from '../config/env';
 
 export interface BolnaTelemetryContext {
   route_id?: string;
@@ -175,7 +176,7 @@ class BolnaVoiceService {
     this.callSessionStartTime = Date.now();
     // Synchronously reset previous hangup signal on the backend so stale hangups never cut the new call
     try {
-      await fetch('/api/bolna/reset-hangup', { method: 'POST' });
+      await fetch(apiUrl('/api/bolna/reset-hangup'), { method: 'POST' });
     } catch {}
 
     this.notifyError(null);
@@ -305,7 +306,7 @@ class BolnaVoiceService {
         return;
       }
       try {
-        const res = await fetch('/api/bolna/hangup-status');
+        const res = await fetch(apiUrl('/api/bolna/hangup-status'));
         if (res.ok) {
           const data = await res.json();
           // STRICT CONDITION: Only terminate if Friday explicitly triggered hangup AFTER this specific call started!
@@ -316,7 +317,7 @@ class BolnaVoiceService {
             // Allow 1.2 seconds for Friday's closing statement to finish playing through speakers
             setTimeout(async () => {
               await this.stopCall();
-              fetch('/api/bolna/reset-hangup', { method: 'POST' }).catch(() => {});
+              fetch(apiUrl('/api/bolna/reset-hangup'), { method: 'POST' }).catch(() => {});
             }, 1200);
           }
         }
@@ -441,7 +442,7 @@ class BolnaVoiceService {
       challan_count: telemetryData?.challan_count
     };
 
-    fetch('/api/telemetry/live', {
+    fetch(apiUrl('/api/telemetry/live'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -449,7 +450,7 @@ class BolnaVoiceService {
 
     // 2. Query dynamic reasoning engine to keep UI subtitles updated and speak alert in real time
     try {
-      const analyzeRes = await fetch('/api/bolna/analyze-situation', {
+      const analyzeRes = await fetch(apiUrl('/api/bolna/analyze-situation'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

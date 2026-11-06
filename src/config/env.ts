@@ -6,6 +6,23 @@
  * Import this instead of scattering import.meta.env.* across the codebase.
  */
 
+export const apiUrl = (endpoint: string): string => {
+  const backend = import.meta.env.VITE_BACKEND_URL?.trim();
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // If in local Vite dev (port 5173), use relative path so Vite proxy handles it
+  if (typeof window !== 'undefined' && window.location.port === '5173') {
+    return cleanEndpoint;
+  }
+
+  // If backend URL is set (e.g. pointing to Render from Vercel)
+  if (backend) {
+    return `${backend.replace(/\/+$/, '')}${cleanEndpoint}`;
+  }
+
+  return cleanEndpoint;
+};
+
 export const ENV = {
   // ── Backend ──────────────────────────────────────────────────────────────
   /** FastAPI base URL – point to ngrok for Bolna or localhost for local dev */

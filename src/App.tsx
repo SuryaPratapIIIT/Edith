@@ -30,7 +30,7 @@ import { RoutePlanningView } from './components/RoutePlanningView';
 import { ActiveTripView } from './components/ActiveTripView';
 import type { SectionSummaryResult } from './components/JourneySectionStepper';
 import { JourneySummaryModal } from './components/JourneySummaryModal';
-import { PACE_CONFIG } from './config/env';
+import { PACE_CONFIG, apiUrl } from './config/env';
 
 export default function App() {
   // 1. Planned Journey State (Unified Continuous Journey)
@@ -42,7 +42,7 @@ export default function App() {
 
   useEffect(() => {
     const checkTunnel = () => {
-      fetch('/api/tunnel/status').then(r => r.json()).then(data => setTunnelOnline(Boolean(data?.active && data?.status === 'healthy')))
+      fetch(apiUrl('/api/tunnel/status')).then(r => r.json()).then(data => setTunnelOnline(Boolean(data?.active && data?.status === 'healthy')))
         .catch(() => setTunnelOnline(false));
     };
     checkTunnel();
@@ -450,7 +450,7 @@ export default function App() {
   // Sends speed = 0 so the backend session reflects a stationary pre-ride state, not the slider value.
   useEffect(() => {
     const firstCamera = journey.cameras[0] ?? null;
-    fetch('/api/telemetry/live', {
+    fetch(apiUrl('/api/telemetry/live'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -791,7 +791,7 @@ export default function App() {
       challan_count: challanCount
     };
 
-    fetch('/api/telemetry/live', {
+    fetch(apiUrl('/api/telemetry/live'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -860,7 +860,7 @@ export default function App() {
           challan_count: challanHistory.length
         };
         lastTelemetrySyncTimeRef.current = now;
-        fetch('/api/telemetry/live', {
+        fetch(apiUrl('/api/telemetry/live'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)

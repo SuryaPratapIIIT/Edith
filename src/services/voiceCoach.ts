@@ -1,6 +1,7 @@
 import { AlertLevel, VoiceLanguage } from '../types/pace';
 import type { CheckpointWarning } from '../engine/warningEngine';
 import { bolnaVoiceService } from './bolnaVoiceService';
+import { apiUrl } from '../config/env';
 
 class VoiceCoachService {
   private audioCtx: AudioContext | null = null;
@@ -327,7 +328,7 @@ class VoiceCoachService {
     if (bolnaVoiceService.isCallActive() || bolnaVoiceService.isConnecting()) {
       console.log('[Ride Complete] Automatically cutting call with Friday...');
       await bolnaVoiceService.stopCall();
-      fetch('/api/bolna/hangup', {
+      fetch(apiUrl('/api/bolna/hangup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'ride_completed' })
