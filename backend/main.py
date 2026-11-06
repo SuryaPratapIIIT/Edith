@@ -21,10 +21,19 @@ from pathlib import Path
 import logging
 from typing import Optional
 
-# Filter out high-frequency telemetry heartbeats from cluttering the console log
+# Filter out high-frequency polling/heartbeat endpoints from cluttering the developer console
 class TelemetryLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        return "/api/telemetry/live" not in record.getMessage()
+        msg = record.getMessage()
+        return not any(
+            endpoint in msg
+            for endpoint in (
+                "/api/telemetry/live",
+                "/api/bolna/hangup-status",
+                "/api/tunnel/status",
+                "/health",
+            )
+        )
 
 logging.getLogger("uvicorn.access").addFilter(TelemetryLogFilter())
 

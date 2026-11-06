@@ -13,8 +13,6 @@ const PORT = 8000;
 const SUBDOMAIN = 'velo-ai-copilot';
 
 let activeTunnel = null;
-let keepaliveTimer = null;
-let consecutiveFailures = 0;
 let isReconnecting = false;
 
 function recordActiveTunnel(tunnelUrl) {
@@ -41,11 +39,6 @@ function updateBolna(tunnelUrl) {
 function scheduleReconnect(delayMs = 2000) {
   if (isReconnecting) return;
   isReconnecting = true;
-
-  if (keepaliveTimer) {
-    clearInterval(keepaliveTimer);
-    keepaliveTimer = null;
-  }
 
   if (activeTunnel) {
     try {
@@ -86,49 +79,6 @@ async function startTunnel() {
       console.error('[TUNNEL ERROR] Tunnel socket error:', err.message || err);
       scheduleReconnect(3000);
     });
-
-    // Active Health Monitor & Anti-Zombie Keepalive Ping every 25 seconds
-    keepaliveTimer = setInterval(() => {
-      if (!activeTunnel) return;
-
-      const client = activeTunnel.url.startsWith('https') ? https : http;
-      const req = client.get(
-        `${activeTunnel.url}/health`,
-        {
-          headers: { 'bypass-tunnel-reminder': 'true' },
-          timeout: 10000
-        },
-        (res) => {
-          if (res.statusCode === 200) {
-            consecutiveFailures = 0;
-          } else {
-            consecutiveFailures++;
-            if (consecutiveFailures >= 4) {
-              console.error(`[TUNNEL UNRESPONSIVE] Ping returned HTTP ${res.statusCode} (${consecutiveFailures} consecutive failures). Recycling tunnel...`);
-              scheduleReconnect(1500);
-            }
-          }
-        }
-      );
-
-      req.on('timeout', () => {
-        req.destroy();
-        consecutiveFailures++;
-        if (consecutiveFailures >= 4) {
-          console.error(`[TUNNEL TIMEOUT] Tunnel unresponsive after ${consecutiveFailures} attempts. Recycling tunnel...`);
-          scheduleReconnect(1500);
-        }
-      });
-
-      req.on('error', (err) => {
-        consecutiveFailures++;
-        if (consecutiveFailures >= 4) {
-          console.error(`[TUNNEL ERROR] Network failure: ${err.message}. Recycling tunnel...`);
-          scheduleReconnect(1500);
-        }
-      });
-    }, 25000);
-
   } catch (err) {
     console.error('[TUNNEL INIT ERROR]:', err.message);
     scheduleReconnect(3000);

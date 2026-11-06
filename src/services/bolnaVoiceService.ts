@@ -312,7 +312,7 @@ class BolnaVoiceService {
       } catch {
         // Ignore polling errors
       }
-    }, 350);
+    }, 1000);
   }
 
   private stopHangupWatcher() {
