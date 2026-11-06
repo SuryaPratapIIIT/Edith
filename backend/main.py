@@ -19,7 +19,7 @@ import asyncio
 import httpx
 from pathlib import Path
 import logging
-from typing import Optional
+from typing import Optional, List
 
 # Filter out high-frequency polling/heartbeat endpoints from cluttering the developer console
 class TelemetryLogFilter(logging.Filter):
@@ -210,6 +210,9 @@ class LiveTelemetryPayload(BaseModel):
     journey_elapsed_s: Optional[float] = None
     total_cameras: Optional[int] = None
     cleared_cameras: Optional[int] = None
+    cameras_passed: Optional[int] = None
+    cameras_remaining: Optional[int] = None
+    passed_camera_names: Optional[List[str]] = None
     challan_count: Optional[int] = None
 
 
@@ -492,8 +495,24 @@ async def update_live_telemetry(payload: LiveTelemetryPayload):
     sess["route_destination"] = payload.route_destination or sess.get("route_destination", "Gurugram Destination")
     sess["total_journey_m"] = payload.total_journey_m if payload.total_journey_m is not None else sess.get("total_journey_m", payload.covered_m + payload.remaining_m)
     sess["journey_elapsed_s"] = payload.journey_elapsed_s if payload.journey_elapsed_s is not None else sess.get("journey_elapsed_s", 0)
-    sess["total_cameras"] = payload.total_cameras if payload.total_cameras is not None else sess.get("total_cameras", 7)
-    sess["cleared_cameras"] = payload.cleared_cameras if payload.cleared_cameras is not None else sess.get("cleared_cameras", 0)
+    if payload.total_cameras is not None:
+        sess["total_cameras"] = payload.total_cameras
+    elif "total_cameras" not in sess:
+        sess["total_cameras"] = 0
+
+    passed_cams = payload.cameras_passed if payload.cameras_passed is not None else payload.cleared_cameras
+    if passed_cams is not None:
+        sess["cleared_cameras"] = passed_cams
+        sess["cameras_passed"] = passed_cams
+    elif "cameras_passed" not in sess:
+        sess["cameras_passed"] = sess.get("cleared_cameras", 0)
+        sess["cleared_cameras"] = sess["cameras_passed"]
+
+    if payload.passed_camera_names is not None:
+        sess["passed_camera_names"] = payload.passed_camera_names
+    elif "passed_camera_names" not in sess:
+        sess["passed_camera_names"] = []
+
     sess["challan_count"] = payload.challan_count if payload.challan_count is not None else sess.get("challan_count", 0)
     sess["updated_at"] = time.time()
 
@@ -555,10 +574,15 @@ def get_live_bolna_status(response: Response):
             "checkpoint_index": None,
             "checkpoint_name": None,
             "test_case_id": None,
-            "total_cameras": 7,
+            "total_cameras": 0,
             "cleared_cameras": 0,
-            "remaining_cameras": 7,
-            "camera_summary": "There are 7 total ANPR cameras configured along the Gurugram NH-48 corridor.",
+            "cameras_passed": 0,
+            "cameras_crossed": 0,
+            "remaining_cameras": 0,
+            "cameras_remaining": 0,
+            "passed_camera_names": [],
+            "cameras_passed_statement": "You have passed 0 cameras so far. All upcoming cameras are ahead.",
+            "camera_summary": "0 cameras passed. All upcoming cameras are ahead.",
             "challan_risk": "Zero Risk - Clean Record",
             "trip_summary": "Stationary at trip starting point. All sensors live.",
             "situation_analysis": "Vehicle stationary at starting point. All systems nominal.",
@@ -621,8 +645,16 @@ def get_live_bolna_status(response: Response):
     covered_km = round(covered_m / 1000, 1)
     remaining_km = round(remaining_m / 1000, 1)
     progress_pct = min(100, round((covered_m / max(1.0, covered_m + remaining_m)) * 100))
-    total_cams = latest_sess.get("total_cameras", 7)
-    cleared_cams = latest_sess.get("cleared_cameras", 0)
+    total_cams = latest_sess.get("total_cameras", 0)
+    cleared_cams = latest_sess.get("cameras_passed", latest_sess.get("cleared_cameras", 0))
+    remaining_cams = max(0, total_cams - cleared_cams)
+    passed_cam_names = latest_sess.get("passed_camera_names", [])
+
+    if cleared_cams > 0:
+        cams_passed_stmt = f"You have passed {cleared_cams} cameras so far out of {total_cams} total cameras on this route. {remaining_cams} cameras remaining ahead."
+    else:
+        cams_passed_stmt = f"You have passed 0 cameras so far. None of the {total_cams} cameras have been passed yet; all {total_cams} cameras are ahead."
+
     trip_challans = latest_sess.get("challan_count", 0)
     elapsed_s = latest_sess.get("journey_elapsed_s", 0)
     elapsed_min = round(elapsed_s / 60, 1)
@@ -631,7 +663,7 @@ def get_live_bolna_status(response: Response):
         f"Trip from {origin_name} to {dest_name} ({total_trip_km} km total). "
         f"Elapsed time: {elapsed_min} mins. Covered: {covered_km} km ({progress_pct}% done). "
         f"Remaining: {remaining_km} km (ETA: {eta_dest_human}). "
-        f"Cameras cleared: {cleared_cams} of {total_cams}. "
+        f"Cameras passed: {cleared_cams} of {total_cams}. "
         f"Challan status: {'Zero Challans' if trip_challans == 0 else f'{trip_challans} violation(s)'}."
     )
 
@@ -724,10 +756,17 @@ def get_live_bolna_status(response: Response):
         "latest_checkpoint_status_label": latest_cp["status_label"] if latest_cp else "No checkpoint crossed yet",
         "latest_checkpoint_advice": latest_cp["advice"] if latest_cp else "Maintain safe legal speed within ceiling.",
         "checkpoints_crossed_count": len(latest_sess.get("checkpoints", {})),
-        "total_cameras": total_cams,
+        "note_checkpoints_are_not_cameras": "Checkpoints are quarter-distance route markers (CP1 25%, CP2 50%, CP3 75%), NOT speed cameras. Do NOT confuse checkpoints with cameras.",
+        "cameras_passed": cleared_cams,
+        "cameras_passed_count": cleared_cams,
+        "cameras_crossed": cleared_cams,
         "cleared_cameras": cleared_cams,
-        "remaining_cameras": max(0, total_cams - cleared_cams),
-        "camera_summary": f"There are {total_cams} total cameras on this route. {cleared_cams} have been cleared, and {max(0, total_cams - cleared_cams)} remaining.",
+        "total_cameras": total_cams,
+        "remaining_cameras": remaining_cams,
+        "cameras_remaining": remaining_cams,
+        "passed_camera_names": passed_cam_names,
+        "cameras_passed_statement": cams_passed_stmt,
+        "camera_summary": f"{cleared_cams} cameras passed out of {total_cams} total cameras on this route. {remaining_cams} cameras remaining ahead.",
         "test_case_id": test_case_id,
         "challan_risk": latest_sess.get("challan_risk", "Zero Risk - Clean Record"),
         "trip_summary": trip_summary,

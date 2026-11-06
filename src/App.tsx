@@ -467,6 +467,9 @@ export default function App() {
         journey_elapsed_s: 0,
         total_cameras: journey.cameras.length,
         cleared_cameras: 0,
+        cameras_passed: 0,
+        cameras_remaining: journey.cameras.length,
+        passed_camera_names: [],
         challan_count: 0
       })
     }).catch(() => {}); // Non-blocking — silent fail if backend not yet up
@@ -670,8 +673,14 @@ export default function App() {
     ? Math.min(4, Math.max(1, Math.floor((coveredInZone_m / activeZone.length_m) * 4) + 1))
     : null;
 
+  // Real-time camera calculations
+  const passedCameras = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m);
+  const clearedCamerasCount = passedCameras.length;
+  const remainingCamerasCount = Math.max(0, journey.cameras.length - clearedCamerasCount);
+  const passedCameraNames = passedCameras.map(c => c.name);
+
   // Real-time telemetry context prepared for Bolna Voice AI Agent (FRIDAY)
-  const bolnaTelemetryContext = {
+  const bolnaTelemetryContext: BolnaTelemetryContext = {
     route_id: `${journey.origin.id}_to_${journey.destination.id}`,
     route_origin: journey.origin.name,
     route_destination: journey.destination.name,
@@ -688,7 +697,12 @@ export default function App() {
     challan_risk:
       challanHistory.length > 0
         ? `High Challan Risk (${challanHistory.length} incident(s) in region)`
-        : 'Zero Challan Risk (Safe & Clean Record)'
+        : 'Zero Challan Risk (Safe & Clean Record)',
+    total_cameras: journey.cameras.length,
+    cleared_cameras: clearedCamerasCount,
+    cameras_passed: clearedCamerasCount,
+    cameras_remaining: remainingCamerasCount,
+    passed_camera_names: passedCameraNames
   };
 
   // Smart Adaptive Telemetry Sync: Cuts HTTP network traffic by 85%+
@@ -708,6 +722,7 @@ export default function App() {
     const distCamera = Math.round(distToNextCamera_m);
     const challanCount = challanHistory.length;
     const alert = currentPace.alert;
+    const currentClearedCams = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length;
 
     const last = lastSentTelemetryRef.current;
 
@@ -717,6 +732,7 @@ export default function App() {
     // 3. Alert status changed (green <-> amber <-> red)
     // 4. Target camera changed or within critical 150m approach window (every 25m)
     // 5. Challan status changed
+    // 6. Camera crossed / passed count changed
     const hasMeaningfulChange =
       !last ||
       Math.abs(currentSpeed - last.speed) >= 2 ||
@@ -724,6 +740,7 @@ export default function App() {
       alert !== last.alert ||
       cameraName !== last.camera ||
       challanCount !== last.challanCount ||
+      currentClearedCams !== (last as any).clearedCameras ||
       (distCamera <= 150 && Math.abs(distCamera - last.distToCamera) >= 25);
 
     // Keepalive: If car is stopped or cruising with identical speed, ping once every 5 seconds
@@ -746,8 +763,13 @@ export default function App() {
       alert,
       camera: cameraName,
       challanCount,
-      distToCamera: distCamera
-    };
+      distToCamera: distCamera,
+      clearedCameras: currentClearedCams
+    } as any;
+
+    const currentPassedCams = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m);
+    const currentPassedCount = currentPassedCams.length;
+    const currentRemainingCount = Math.max(0, journey.cameras.length - currentPassedCount);
 
     const payload = {
       session_id: 'live_ride',
@@ -772,7 +794,10 @@ export default function App() {
       total_journey_m: Math.round(journey.totalDistance_m),
       journey_elapsed_s: Math.round(journeyElapsed_s),
       total_cameras: journey.cameras.length,
-      cleared_cameras: journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length,
+      cleared_cameras: currentPassedCount,
+      cameras_passed: currentPassedCount,
+      cameras_remaining: currentRemainingCount,
+      passed_camera_names: currentPassedCams.map(c => c.name),
       challan_count: challanCount
     };
 
@@ -814,6 +839,7 @@ export default function App() {
     const keepaliveTimer = setInterval(() => {
       const now = Date.now();
       if (now - lastTelemetrySyncTimeRef.current >= 5000) {
+        const currentKeepalivePassed = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m);
         const payload = {
           session_id: 'live_ride',
           section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
@@ -837,7 +863,10 @@ export default function App() {
           total_journey_m: Math.round(journey.totalDistance_m),
           journey_elapsed_s: Math.round(journeyElapsed_s),
           total_cameras: journey.cameras.length,
-          cleared_cameras: journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length,
+          cleared_cameras: currentKeepalivePassed.length,
+          cameras_passed: currentKeepalivePassed.length,
+          cameras_remaining: Math.max(0, journey.cameras.length - currentKeepalivePassed.length),
+          passed_camera_names: currentKeepalivePassed.map(c => c.name),
           challan_count: challanHistory.length
         };
         lastTelemetrySyncTimeRef.current = now;

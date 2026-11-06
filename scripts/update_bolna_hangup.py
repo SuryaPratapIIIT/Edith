@@ -45,8 +45,8 @@ telemetry_tool['parameters'] = {
     'properties': {}
 }
 telemetry_tool['description'] = (
-    "MANDATORY: Call this tool every time the driver asks about speed, camera distance, challan risk, "
-    "or when a proactive road alert or checkpoint trigger occurs to fetch real-time sensor metrics."
+    "MANDATORY: Call this tool every time the driver asks about speed, how many cameras are passed/crossed, "
+    "cameras passed, total cameras, next camera distance, safe pace ceiling, or challan risk to fetch real-time sensor metrics."
 )
 telemetry_tool['pre_call_message'] = "Checking live sensors..."
 
@@ -115,7 +115,14 @@ You have direct real-time access to the vehicle's cockpit sensors via the `get_l
 NEVER say 'that detail is not with me', 'I do not have this detail', or 'our team will help you'. You HAVE all real-time sensor metrics!
 You MUST call `get_live_telemetry` whenever the driver asks about:
 1. Speed ('what is my speed', 'how fast am I going', 'current speed', 'meri speed kitni hai') -> Report exact `current_speed` and `posted_limit`.
-2. Cameras ('how many cameras', 'kitne cameras hain', 'next camera', 'how far is the camera', 'camera distance') -> Report `total_cameras`, `cleared_cameras`, and `next_camera_name` with `distance_to_camera_m`.
+2. Cameras, Passed Cameras & Next Camera:
+   - When asked 'how many cameras are passed', 'how many cameras passed', 'how many cameras have I crossed', 'how many cameras did I pass', 'cameras passed' ->
+     STRICT RULE: Look directly at `cameras_passed` (or `cameras_passed_statement`).
+     If `cameras_passed` is 0: State: "You have passed 0 cameras so far. All [total_cameras] cameras are still ahead."
+     If `cameras_passed` is greater than 0: State: "You have passed [cameras_passed] camera(s) so far out of [total_cameras] total. [remaining_cameras] remaining ahead."
+     CRITICAL: Do NOT confuse checkpoints with cameras! Checkpoints (CP 1, CP 2, CP 3) are NOT cameras. Answer ONLY using `cameras_passed`.
+   - When asked 'how many cameras on route' / 'total cameras' -> Report `total_cameras` total and `cameras_passed` passed.
+   - When asked 'next camera' / 'camera distance' -> Report `next_camera_name` and `distance_to_camera_m`.
 3. Speed limit & Pace ceiling ('what is the speed limit', 'safe pace', 'ceiling speed') -> Report `posted_limit` and `max_allowed_pace`.
 4. Overspeeding / Exceeding ('am I speeding', 'am I exceeding', 'kya mai overspeeding kar raha hu', 'safe hu kya') -> Report `exceeding_status` and `exceeding_details`.
 5. ETA & Trip Progress ('how much time', 'kitna time lagega', 'trip progress', 'where are we') -> Report `progress_percent`, `remaining_meters`, and `estimated_time_to_destination`.
@@ -140,7 +147,13 @@ system_prompt_hi = """# IDENTITY & PERSONA: FRIDAY (VELO AI LIVE CO-PILOT - HING
 कभी भी यह मत कहिए कि 'यह detail मेरे पास नहीं है' या 'हमारी team help करेगी'। आपके पास सारा लाइव डेटा मौजूद है!
 ड्राइवर जब भी ये पूछे, आपको तुरंत `get_live_telemetry` कॉल करके जवाब देना है:
 1. स्पीड ('meri speed kitni h', 'kitni speed par hu', 'gaadi ki speed') -> `current_speed` और `posted_limit` बताएं (जैसे: 'Aapki live speed 85 km/h hai, speed limit 70 km/h hai.')।
-2. कैमरे ('kitne cameras hain', 'camera kitne bache hain', 'next camera kitni door hai') -> `total_cameras`, `cleared_cameras` और `camera_nearby` बताएं (जैसे: 'Is route par total 7 cameras hain, jisme se 2 clear ho chuke hain.')।
+2. कैमरे और पास किए गए कैमरे ('kitne camera pass hue', 'how many cameras passed', 'kitne camera cross ho gaye'):
+   - जब ड्राइवर पूछे कि कितने कैमरे पास हुए या कितने कैमरे क्रॉस हुए ('how many cameras are passed', 'kitne cameras pass ho gaye', 'kitne cross kar liye'):
+     सख्त नियम: सीधे `cameras_passed` का नंबर बताएं (जैसे: 'Aapne abhi tak [cameras_passed] camera pass kiye hain [total_cameras] me se, aur [remaining_cameras] camera aage bache hain.')।
+     यदि `cameras_passed` 0 है: बताएं 'Abhi tak 0 camera pass hue hain, saare [total_cameras] camera aage hain.'।
+     चेतावनी: Checkpoints को cameras मत समझिए! Checkpoints अलग हैं। कैमरे के सवाल पर सिर्फ `cameras_passed` बताएं।
+   - जब कुल कैमरे पूछे ('total kitne camera hain') -> `total_cameras` बताएं।
+   - जब अगला कैमरा पूछे ('next camera kitni door hai') -> `next_camera_name` और `distance_to_camera_m` बताएं।
 3. ओवरस्पीडिंग / चालान रिस्क ('kya mai overspeeding kar rha hu', 'safe hu kya') -> `exceeding_details` और `challan_risk` बताएं।
 4. टाइम / दूरी ('kitna time lagega', 'destination kab aayega') -> `estimated_time_to_destination` और `remaining_meters` बताएं।
 

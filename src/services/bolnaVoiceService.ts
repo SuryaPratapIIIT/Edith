@@ -28,6 +28,11 @@ export interface BolnaTelemetryContext {
   remaining_km?: number;
   status_alert?: string;
   challan_risk?: string;
+  total_cameras?: number;
+  cleared_cameras?: number;
+  cameras_passed?: number;
+  cameras_remaining?: number;
+  passed_camera_names?: string[];
 }
 
 export type BolnaStateListener = (state: CallState) => void;
@@ -183,7 +188,12 @@ class BolnaVoiceService {
       distance_to_camera_m: context?.distance_to_camera_m ?? 800,
       remaining_km: context?.remaining_km ?? 0,
       status_alert: context?.status_alert || 'green',
-      challan_risk: context?.challan_risk || 'Zero Risk - Clean Record'
+      challan_risk: context?.challan_risk || 'Zero Risk - Clean Record',
+      total_cameras: context?.total_cameras ?? 0,
+      cleared_cameras: context?.cleared_cameras ?? 0,
+      cameras_passed: context?.cameras_passed ?? context?.cleared_cameras ?? 0,
+      cameras_remaining: context?.cameras_remaining ?? 0,
+      passed_camera_names: context?.passed_camera_names ?? []
     };
 
     try {
