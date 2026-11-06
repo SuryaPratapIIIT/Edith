@@ -929,7 +929,7 @@ export default function App() {
       <div className={`relative flex-1 w-full overflow-hidden flex transition-all duration-500 ${
         currentScreen === 'navigation'
           ? 'items-stretch justify-start p-1 sm:p-3 md:pl-5'
-          : 'items-center justify-center lg:justify-start lg:pl-6 p-1 sm:p-2'
+          : 'items-stretch justify-center lg:justify-start lg:pl-6 p-1 sm:p-2'
       }`}>
         {/* Full-Screen Underlying Dark-Themed Road Map */}
         <ExpresswayMap
@@ -953,7 +953,7 @@ export default function App() {
         <div className={`relative z-10 w-full pointer-events-none flex flex-col justify-between py-1 sm:py-2 transition-all duration-500 ease-out ${
           currentScreen === 'navigation'
             ? 'max-w-[420px] md:max-w-[390px] h-full'
-            : 'max-w-[430px] min-h-[calc(100vh-50px)]'
+            : 'max-w-[420px] h-full max-h-full'
         }`}>
           {currentScreen === 'planning' ? (
             <RoutePlanningView
