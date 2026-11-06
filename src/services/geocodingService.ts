@@ -196,3 +196,4 @@ export async function resolveTextToPlace(query: string): Promise<GurgaonPlace | 
   // 4. Fallback to top local result if any exists
   return local.length > 0 ? local[0] : null;
 }
+
