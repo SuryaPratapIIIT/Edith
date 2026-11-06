@@ -222,6 +222,10 @@ class BolnaSessionRequest(BaseModel):
 tunnel_subprocess = None
 
 async def check_tunnel_healthy(timeout: float = 2.0) -> tuple[bool, str]:
+    # In production deployments (e.g. Render), the backend is already a public cloud URL — no tunnel needed!
+    if ENVIRONMENT == "production" or "onrender.com" in BACKEND_PUBLIC_URL:
+        return (True, BACKEND_PUBLIC_URL)
+
     active_tunnel_file = Path(__file__).resolve().parent / ".active_tunnel"
     tunnel_url = "https://velo-ai-copilot.loca.lt"
     if active_tunnel_file.exists():
@@ -237,6 +241,8 @@ async def check_tunnel_healthy(timeout: float = 2.0) -> tuple[bool, str]:
 
 def spawn_tunnel_background():
     global tunnel_subprocess
+    if ENVIRONMENT == "production" or "onrender.com" in BACKEND_PUBLIC_URL:
+        return  # No local tunnel needed on cloud deployments
     import subprocess
     script_path = Path(__file__).resolve().parent.parent / "scripts" / "tunnel.js"
     root_dir = Path(__file__).resolve().parent.parent
