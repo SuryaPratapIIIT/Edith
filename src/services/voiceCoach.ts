@@ -120,7 +120,7 @@ class VoiceCoachService {
    * Immediately stops any pending speech or audio
    */
   public stop() {
-    // Bolna voice is managed by WebRTC call session
+    bolnaVoiceService.clearQueueAndStopAudio();
   }
 
   /**

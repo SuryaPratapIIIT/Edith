@@ -35,6 +35,15 @@ export interface BolnaTelemetryContext {
   passed_camera_names?: string[];
 }
 
+export interface VoiceQueueItem {
+  id: string;
+  text: string;
+  language: VoiceLanguage;
+  priority: number; // 1 = Critical Emergency, 2 = Milestone, 3 = Caution, 4 = Routine Status
+  eventType: string;
+  createdAt: number;
+}
+
 export type BolnaStateListener = (state: CallState) => void;
 export type BolnaVolumeListener = (volume: number) => void;
 export type BolnaErrorListener = (error: string | null) => void;
@@ -59,6 +68,14 @@ class BolnaVoiceService {
   private callSessionStartTime: number = 0;
   private currentAlertAudio: HTMLAudioElement | null = null;
 
+  // ── Synchronized Voice Queue & Mutex ─────────────────────────
+  private queue: VoiceQueueItem[] = [];
+  private isProcessingQueue: boolean = false;
+  private currentPlayingItem: VoiceQueueItem | null = null;
+  private lastSpokenTime: number = 0;
+  private lastAgentSpeechTime: number = 0;
+  private lastSpokenEvents: Map<string, number> = new Map();
+
   constructor() {
     // Completely silence and cancel any browser SpeechSynthesis (no second voice)
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -81,6 +98,13 @@ class BolnaVoiceService {
 
   public isConnecting(): boolean {
     return this.state === 'connecting' || this.state === 'ringing';
+  }
+
+  public isAgentSpeaking(): boolean {
+    const isVolumeHigh = this.volume > 0.04;
+    const isRecentlySpoken = Date.now() - this.lastAgentSpeechTime < 2200;
+    const isWelcomePhase = this.isCallActive() && (Date.now() - this.callSessionStartTime < 3500);
+    return isVolumeHigh || isRecentlySpoken || isWelcomePhase;
   }
 
   public getVolume(): number {
@@ -226,6 +250,9 @@ class BolnaVoiceService {
 
       this.call.on('volume-level', (vol: number) => {
         this.notifyVolume(vol);
+        if (vol > 0.04) {
+          this.lastAgentSpeechTime = Date.now();
+        }
       });
 
       this.call.on('error', (err: CallError) => {
@@ -250,16 +277,7 @@ class BolnaVoiceService {
    */
   public async stopCall(): Promise<void> {
     this.stopHangupWatcher();
-
-    // Immediately stop, cancel, and destroy any proactive alert audio
-    if (this.currentAlertAudio) {
-      try {
-        this.currentAlertAudio.pause();
-        this.currentAlertAudio.currentTime = 0;
-        this.currentAlertAudio.src = '';
-      } catch {}
-      this.currentAlertAudio = null;
-    }
+    this.clearQueueAndStopAudio();
 
     if (this.call) {
       try {
@@ -342,128 +360,282 @@ class BolnaVoiceService {
    * Streams high-fidelity neural audio matching Friday's exact voice directly through
    * speakers unprompted, without robotic browser TTS or synthetic second voices.
    */
-  public async speakProactiveVoiceAlert(text: string, language: VoiceLanguage = 'hinglish'): Promise<void> {
-    if (this.isMuted) return;
-    if (!text || text.trim() === '') return;
+  /**
+   * Evaluates alert event urgency:
+   * 1 = Critical Emergency (spot violation, speed violation)
+   * 2 = High Priority Road Milestone (checkpoint, camera proximity, route complete)
+   * 3 = Caution (amber pace alert, route planned)
+   * 4 = Routine Status (green cruise pace, nominal updates)
+   */
+  private getEventPriority(eventType: string, alert?: string): number {
+    if (eventType === 'spot_violation' || eventType === 'speed_violation') {
+      return 1;
+    }
+    if (eventType === 'camera_100m' || eventType === 'checkpoint' || eventType === 'journey_complete') {
+      return 2;
+    }
+    if (eventType === 'route_planned' || (eventType === 'speed_alert' && alert === 'red')) {
+      return 2;
+    }
+    if (eventType === 'speed_alert' && alert === 'amber') {
+      return 3;
+    }
+    return 4;
+  }
 
-    try {
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+  /**
+   * Enqueues a voice alert into the synchronized FIFO audio queue.
+   * Completely eliminates voice overlapping, async race conditions, and WebRTC clashes.
+   */
+  public enqueueProactiveVoiceAlert(
+    text: string,
+    language: VoiceLanguage = 'hinglish',
+    eventType: string = 'status_update',
+    alert?: string
+  ): void {
+    if (this.isMuted || !text || text.trim() === '') return;
 
-      // Stop previous alert if still playing
-      if (this.currentAlertAudio) {
-        this.currentAlertAudio.pause();
-        this.currentAlertAudio.currentTime = 0;
-        this.currentAlertAudio = null;
-      }
+    const priority = this.getEventPriority(eventType, alert);
+    const now = Date.now();
 
-      const res = await fetch('/api/voice/synthesize-alert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, language })
-      });
+    // 1. Cooldown per event type to prevent rapid repetitive announcements
+    const lastTimeForThisEvent = this.lastSpokenEvents.get(eventType) || 0;
+    const cooldownMs =
+      priority === 1 ? 5000 : // Emergency: min 5s gap
+      priority === 2 ? 7000 : // Milestones: min 7s gap
+      priority === 3 ? 9000 : // Caution: min 9s gap
+      15000; // Routine Green status: min 15s gap
 
-      if (!res.ok) {
+    if (now - lastTimeForThisEvent < cooldownMs) {
+      return;
+    }
+
+    // 2. Drop routine status (Priority 4) if anything is active or queued
+    if (priority >= 4) {
+      if (this.currentPlayingItem !== null || this.queue.length > 0 || this.isAgentSpeaking()) {
         return;
       }
-
-      const blob = await res.blob();
-      const audioUrl = URL.createObjectURL(blob);
-      const audio = new Audio(audioUrl);
-      this.currentAlertAudio = audio;
-
-      // Temporarily mute WebRTC mic during Friday's alert playback to prevent audio feedback
-      const wasCallActive = this.isCallActive();
-      const prevMuted = this.isMuted;
-      if (wasCallActive && !prevMuted) {
-        this.call?.setMuted(true);
+      if (now - this.lastSpokenTime < 10000) {
+        return;
       }
+    }
 
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        if (this.currentAlertAudio === audio) {
-          this.currentAlertAudio = null;
-        }
-        if (wasCallActive && !prevMuted) {
-          this.call?.setMuted(false);
-        }
-      };
+    // 3. Deduplicate: Never queue identical eventType if already pending
+    if (this.queue.some((item) => item.eventType === eventType)) {
+      return;
+    }
 
-      audio.onerror = () => {
-        URL.revokeObjectURL(audioUrl);
-        if (this.currentAlertAudio === audio) {
-          this.currentAlertAudio = null;
-        }
-        if (wasCallActive && !prevMuted) {
-          this.call?.setMuted(false);
-        }
-      };
+    // 4. Preemption: Emergency Priority 1 interrupts playing routine Priority 3/4 audio immediately
+    if (priority === 1 && this.currentPlayingItem && this.currentPlayingItem.priority >= 3) {
+      if (this.currentAlertAudio) {
+        try {
+          this.currentAlertAudio.pause();
+          this.currentAlertAudio.currentTime = 0;
+        } catch {}
+        this.currentAlertAudio = null;
+      }
+      this.currentPlayingItem = null;
+    }
 
-      await audio.play();
-    } catch (e) {
-      console.warn('[Friday Proactive Voice Alert Playback Error]:', e);
+    // 5. Construct queue item
+    const item: VoiceQueueItem = {
+      id: `${eventType}_${now}`,
+      text: text.trim(),
+      language,
+      priority,
+      eventType,
+      createdAt: now
+    };
+
+    // Strictly limit queue size to max 2 items so driver never hears outdated road alerts
+    if (this.queue.length >= 2) {
+      this.queue.sort((a, b) => a.priority - b.priority);
+      if (item.priority < this.queue[this.queue.length - 1].priority) {
+        this.queue.pop();
+        this.queue.push(item);
+      } else {
+        return;
+      }
+    } else {
+      this.queue.push(item);
+    }
+
+    this.queue.sort((a, b) => a.priority - b.priority);
+    this.lastSpokenEvents.set(eventType, now);
+
+    this.processQueue();
+  }
+
+  /**
+   * Processes the synchronized audio queue sequentially (one voice at a time).
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.queue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
+    try {
+      while (this.queue.length > 0) {
+        if (this.isMuted) {
+          this.queue = [];
+          break;
+        }
+
+        // Wait if FRIDAY is actively speaking over WebRTC (e.g. welcome message or answering query)
+        let waitCount = 0;
+        while (this.isAgentSpeaking() && waitCount < 16) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          waitCount++;
+        }
+
+        if (this.isAgentSpeaking()) {
+          // If Friday is still talking, discard non-critical items
+          this.queue = this.queue.filter((it) => it.priority === 1);
+          if (this.queue.length === 0) break;
+        }
+
+        const item = this.queue.shift();
+        if (!item) break;
+
+        // Skip expired alerts (>12s old)
+        if (Date.now() - item.createdAt > 12000) {
+          continue;
+        }
+
+        this.currentPlayingItem = item;
+        await this.playSingleAudioItem(item);
+        this.currentPlayingItem = null;
+        this.lastSpokenTime = Date.now();
+
+        // 350ms clean breathing pause between spoken sentences
+        if (this.queue.length > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      }
+    } finally {
+      this.isProcessingQueue = false;
     }
   }
 
+  /**
+   * Plays a single voice alert synchronously with WebRTC mic ducking.
+   */
+  private playSingleAudioItem(item: VoiceQueueItem): Promise<void> {
+    return new Promise(async (resolve) => {
+      let resolved = false;
+      const finish = () => {
+        if (!resolved) {
+          resolved = true;
+          if (this.currentAlertAudio) {
+            try {
+              this.currentAlertAudio.onended = null;
+              this.currentAlertAudio.onerror = null;
+            } catch {}
+            this.currentAlertAudio = null;
+          }
+          if (this.isCallActive() && !this.isMuted) {
+            this.call?.setMuted(false);
+          }
+          resolve();
+        }
+      };
+
+      const timeoutTimer = setTimeout(finish, 8000);
+
+      try {
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+
+        const res = await fetch('/api/voice/synthesize-alert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: item.text, language: item.language })
+        });
+
+        if (!res.ok) {
+          clearTimeout(timeoutTimer);
+          finish();
+          return;
+        }
+
+        const blob = await res.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        this.currentAlertAudio = audio;
+
+        // Duck WebRTC mic so vehicle speakers don't loop back into Friday's microphone
+        if (this.isCallActive() && !this.isMuted) {
+          this.call?.setMuted(true);
+        }
+
+        audio.onended = () => {
+          clearTimeout(timeoutTimer);
+          URL.revokeObjectURL(audioUrl);
+          finish();
+        };
+
+        audio.onerror = () => {
+          clearTimeout(timeoutTimer);
+          URL.revokeObjectURL(audioUrl);
+          finish();
+        };
+
+        await audio.play();
+      } catch (err) {
+        console.warn('[Synchronized Voice Playback Error]:', err);
+        clearTimeout(timeoutTimer);
+        finish();
+      }
+    });
+  }
+
+  /**
+   * Public interface to trigger proactive voice alerts (routes into synchronized queue).
+   */
+  public async speakProactiveVoiceAlert(
+    text: string,
+    language: VoiceLanguage = 'hinglish',
+    eventType: string = 'status_update',
+    alert?: string
+  ): Promise<void> {
+    this.enqueueProactiveVoiceAlert(text, language, eventType, alert);
+  }
 
   /**
    * Speaks an announcement such as trip completion and challan summary.
-   * Delivers clear speech using Web SpeechSynthesis, ensures UI subtitles are updated,
-   * and returns a Promise that resolves when speech completes.
+   * Routes into synchronized queue and avoids synthetic second voices.
    */
   public async speakAnnouncement(text: string, language: VoiceLanguage = 'hinglish'): Promise<void> {
     if (this.isMuted || !text || text.trim() === '') return;
-
-    // 1. Update UI subtitles / notification
     this.notifySpeech(text, 'journey_complete');
+    this.enqueueProactiveVoiceAlert(text, language, 'journey_complete');
+  }
 
-    // 2. Audible speech delivery
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      return new Promise<void>((resolve) => {
-        try {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.rate = 0.98;
-          utterance.pitch = 1.0;
-
-          const isHinglish = language === 'hinglish';
-          const voices = window.speechSynthesis.getVoices();
-          const matchVoice = voices.find(
-            (v) =>
-              (isHinglish && (v.lang.toLowerCase().includes('hi') || v.lang.toLowerCase().includes('en-in'))) ||
-              (!isHinglish && v.lang.toLowerCase().includes('en-in')) ||
-              v.lang.toLowerCase().includes('en')
-          );
-          if (matchVoice) {
-            utterance.voice = matchVoice;
-          }
-
-          let isResolved = false;
-          const done = () => {
-            if (!isResolved) {
-              isResolved = true;
-              clearTimeout(fallbackTimer);
-              resolve();
-            }
-          };
-
-          const fallbackTimer = setTimeout(done, 5500);
-          utterance.onend = done;
-          utterance.onerror = done;
-
-          // Prevent Chromium garbage collection bug during playback
-          (window as any).__lastUtterance = utterance;
-
-          if (window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
-          }
-
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          resolve();
-        }
-      });
+  /**
+   * Flushes queue and terminates any playing audio immediately (called on stop/reset/hangup).
+   */
+  public clearQueueAndStopAudio(): void {
+    this.queue = [];
+    if (this.currentAlertAudio) {
+      try {
+        this.currentAlertAudio.pause();
+        this.currentAlertAudio.currentTime = 0;
+        this.currentAlertAudio.src = '';
+      } catch {}
+      this.currentAlertAudio = null;
+    }
+    this.currentPlayingItem = null;
+    this.isProcessingQueue = false;
+    if (this.isCallActive() && !this.isMuted) {
+      this.call?.setMuted(false);
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
     }
   }
 
@@ -588,7 +760,12 @@ class BolnaVoiceService {
             eventType === 'route_planned' ||
             eventType === 'status_update'
           ) {
-            this.speakProactiveVoiceAlert(data.spoken_text, telemetryData?.language ?? 'hinglish');
+            this.enqueueProactiveVoiceAlert(
+              data.spoken_text,
+              telemetryData?.language ?? 'hinglish',
+              eventType,
+              telemetryData?.alert
+            );
           }
         }
       }

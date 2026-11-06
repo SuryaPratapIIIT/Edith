@@ -53,6 +53,12 @@ export default function App() {
   const handleStartNavigation = () => {
     setCurrentScreen('navigation');
     setIsPlaying(true);
+    voiceCoach.triggerRoutePlanned(
+      journey.origin.name,
+      journey.destination.name,
+      journey.cameras.length,
+      journey.totalDistance_m / 1000
+    );
     if (!bolnaVoiceService.isCallActive() && !bolnaVoiceService.isConnecting()) {
       bolnaVoiceService.startCall(bolnaTelemetryContext).catch(() => {});
     }
@@ -61,6 +67,7 @@ export default function App() {
   const handleStopTrip = () => {
     setIsPlaying(false);
     setCurrentScreen('planning');
+    bolnaVoiceService.clearQueueAndStopAudio();
   };
 
   // Dynamic Routing, Real-Time GPS & Map Pick State
@@ -157,12 +164,12 @@ export default function App() {
       firedCheckpointsRef.current = new Set();
       setActiveWarning(null);
 
-      if (activeZone) {
-        voiceCoach.triggerRoutePlanned(
+      if (activeZone && isPlaying && activeZoneIndex > 0) {
+        voiceCoach.triggerSectionTransition(
           activeZone.startCamera.name,
+          currentPace?.currentAvg_kmh || postedLimit,
           activeZone.endCamera.name,
-          2,
-          activeZone.length_m / 1000
+          activeZone.limit_kmh
         );
       }
     }
@@ -521,6 +528,7 @@ export default function App() {
     setActiveWarning(null);
     setWarningHistory([]);
     lastAlertLevelRef.current = 'green';
+    bolnaVoiceService.clearQueueAndStopAudio();
   };
 
   // Dynamic Route Planning Handlers (Supports ANY place, sector, or map click in Gurugram)
@@ -530,12 +538,6 @@ export default function App() {
       const newJourney = await planDynamicJourney(place, journey.destination);
       setJourney(newJourney);
       handleReset();
-      voiceCoach.triggerRoutePlanned(
-        newJourney.origin.name,
-        newJourney.destination.name,
-        newJourney.cameras.length,
-        newJourney.totalDistance_m / 1000
-      );
     } catch (err) {
       console.error('Failed to plan dynamic journey:', err);
     } finally {
@@ -549,12 +551,6 @@ export default function App() {
       const newJourney = await planDynamicJourney(journey.origin, place);
       setJourney(newJourney);
       handleReset();
-      voiceCoach.triggerRoutePlanned(
-        newJourney.origin.name,
-        newJourney.destination.name,
-        newJourney.cameras.length,
-        newJourney.totalDistance_m / 1000
-      );
     } catch (err) {
       console.error('Failed to plan dynamic journey:', err);
     } finally {
@@ -568,12 +564,6 @@ export default function App() {
       const newJourney = await planDynamicJourney(journey.destination, journey.origin);
       setJourney(newJourney);
       handleReset();
-      voiceCoach.triggerRoutePlanned(
-        newJourney.origin.name,
-        newJourney.destination.name,
-        newJourney.cameras.length,
-        newJourney.totalDistance_m / 1000
-      );
     } catch (err) {
       console.error('Failed to swap places:', err);
     } finally {
