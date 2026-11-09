@@ -1,8 +1,9 @@
 import urllib.request
 import json
 import time
+import sys
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = sys.argv[1].rstrip('/') if len(sys.argv) > 1 else "http://localhost:8000"
 
 def test_checkpoint_edge_cases():
     print("=== TESTING CHECKPOINT VOICE & CONTEXT EDGE CASES ===")

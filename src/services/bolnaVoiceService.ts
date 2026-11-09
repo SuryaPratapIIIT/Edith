@@ -309,9 +309,9 @@ class BolnaVoiceService {
         const res = await fetch(apiUrl('/api/bolna/hangup-status'));
         if (res.ok) {
           const data = await res.json();
-          // STRICT CONDITION: Only terminate if Friday explicitly triggered hangup AFTER this specific call started!
+          // Allow 15s clock tolerance between client and remote server
           const hangupTimestampMs = (data.timestamp || 0) * 1000;
-          if (data.hangup_requested && hangupTimestampMs >= this.callSessionStartTime) {
+          if (data.hangup_requested && hangupTimestampMs >= (this.callSessionStartTime - 15000)) {
             console.log('[Bolna Voice] Driver explicitly commanded hangup. Cutting call from Friday\'s end...');
             this.stopHangupWatcher();
             // Allow 1.2 seconds for Friday's closing statement to finish playing through speakers

@@ -6,18 +6,31 @@
  * Import this instead of scattering import.meta.env.* across the codebase.
  */
 
+const DEFAULT_PROD_BACKEND = 'https://velo-ai-u5tz.onrender.com';
+
 export const apiUrl = (endpoint: string): string => {
   const backend = import.meta.env.VITE_BACKEND_URL?.trim();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  // If in local Vite dev (port 5173), use relative path so Vite proxy handles it
-  if (typeof window !== 'undefined' && window.location.port === '5173') {
-    return cleanEndpoint;
+  // If running locally in browser (localhost / 127.0.0.1), use relative path so Vite proxy handles it
+  if (typeof window !== 'undefined') {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocal) {
+      return cleanEndpoint;
+    }
   }
 
-  // If backend URL is set (e.g. pointing to Render from Vercel)
-  if (backend) {
+  // If backend URL is explicitly set and not localhost
+  if (backend && !backend.includes('localhost') && !backend.includes('127.0.0.1')) {
     return `${backend.replace(/\/+$/, '')}${cleanEndpoint}`;
+  }
+
+  // In production cloud environments (e.g. Vercel or external host), point directly to the live Render backend
+  if (typeof window !== 'undefined') {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocal) {
+      return `${DEFAULT_PROD_BACKEND}${cleanEndpoint}`;
+    }
   }
 
   return cleanEndpoint;

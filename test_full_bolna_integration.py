@@ -28,7 +28,7 @@ def run_tests():
 
     # 2. Test live telemetry sync
     telemetry_payload = {
-        "session_id": "integration_test_session",
+        "session_id": "live_ride",
         "speed_kmh": 85,
         "limit_kmh": 70,
         "ceiling_kmh": 68.5,
@@ -52,9 +52,9 @@ def run_tests():
     }
     
     req = urllib.request.Request(
-        "http://localhost:8000/api/telemetry/live",
+        f"{active_tunnel_url}/api/telemetry/live",
         data=json.dumps(telemetry_payload).encode(),
-        headers={"Content-Type": "application/json"}
+        headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"}
     )
     with urllib.request.urlopen(req) as resp:
         res = json.loads(resp.read().decode())
@@ -62,7 +62,10 @@ def run_tests():
         print("[OK] Telemetry Sync (Session ID: integration_test_session)")
 
     # 3. Test GET /api/live/status directly
-    req = urllib.request.Request("http://localhost:8000/api/live/status")
+    req = urllib.request.Request(
+        f"{active_tunnel_url}/api/live/status",
+        headers={"bypass-tunnel-reminder": "true"}
+    )
     with urllib.request.urlopen(req) as resp:
         status_data = json.loads(resp.read().decode())
         cache_hdr = resp.getheader("cache-control", "")
@@ -74,7 +77,7 @@ def run_tests():
         print(f"  -> Situation Analysis: {status_data['situation_analysis']}")
         print(f"  -> Trip Summary:      {status_data['trip_summary']}")
 
-    # 4. Test GET /api/live/status through active Localtunnel
+    # 4. Test GET /api/live/status through active URL
     req = urllib.request.Request(
         f"{active_tunnel_url}/api/live/status",
         headers={"bypass-tunnel-reminder": "true"}
@@ -86,11 +89,11 @@ def run_tests():
 
     # 5. Test Hangup Flow
     # Reset first
-    req = urllib.request.Request("http://localhost:8000/api/bolna/reset-hangup", data=b"{}", headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(f"{active_tunnel_url}/api/bolna/reset-hangup", data=b"{}", headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"})
     urllib.request.urlopen(req)
     
     # Check status is false
-    req = urllib.request.Request("http://localhost:8000/api/bolna/hangup-status")
+    req = urllib.request.Request(f"{active_tunnel_url}/api/bolna/hangup-status", headers={"bypass-tunnel-reminder": "true"})
     with urllib.request.urlopen(req) as resp:
         d = json.loads(resp.read().decode())
         assert d["hangup_requested"] is False, "Expected hangup_requested to be False"
@@ -106,14 +109,14 @@ def run_tests():
         assert hangup_resp["status"] == "hangup_initiated", f"Unexpected response: {hangup_resp}"
 
     # Verify status is true
-    req = urllib.request.Request("http://localhost:8000/api/bolna/hangup-status")
+    req = urllib.request.Request(f"{active_tunnel_url}/api/bolna/hangup-status", headers={"bypass-tunnel-reminder": "true"})
     with urllib.request.urlopen(req) as resp:
         d = json.loads(resp.read().decode())
         assert d["hangup_requested"] is True, "Expected hangup_requested to be True"
         print("[OK] Hangup Call Flow (Trigger -> Status True via active tunnel)")
 
     # Reset hangup back to false so next call is completely clean
-    req = urllib.request.Request("http://localhost:8000/api/bolna/reset-hangup", data=b"{}", headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(f"{active_tunnel_url}/api/bolna/reset-hangup", data=b"{}", headers={"Content-Type": "application/json", "bypass-tunnel-reminder": "true"})
     urllib.request.urlopen(req)
     print("[OK] Hangup Flag Reset Cleanly")
 

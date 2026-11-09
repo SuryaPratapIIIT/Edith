@@ -221,10 +221,83 @@ class BolnaSessionRequest(BaseModel):
 
 tunnel_subprocess = None
 
+def get_public_base_url() -> str:
+    """Returns the live public base URL of the backend across local and cloud environments."""
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url and render_url.strip():
+        return render_url.strip().rstrip("/")
+    backend_pub = os.getenv("BACKEND_PUBLIC_URL")
+    if backend_pub and backend_pub.strip() and "localhost" not in backend_pub and "127.0.0.1" not in backend_pub:
+        return backend_pub.strip().rstrip("/")
+    active_tunnel_file = Path(__file__).resolve().parent / ".active_tunnel"
+    if active_tunnel_file.exists():
+        content = active_tunnel_file.read_text(encoding="utf-8").strip()
+        if content.startswith("http") and "loca.lt" not in content:
+            return content.rstrip("/")
+    return "https://velo-ai-u5tz.onrender.com"
+
+async def sync_bolna_agent_tools(public_url: str):
+    """
+    Ensures Bolna Cloud Agent's tools (get_live_telemetry and hangup_call) are ALWAYS pointing
+    to the live public backend URL, preventing 503 errors and dead tunnels.
+    """
+    if not BOLNA_API_KEY or not BOLNA_AGENT_ID or BOLNA_API_KEY == "your_bolna_api_key_here":
+        return
+    try:
+        url = f"{BOLNA_API_URL.rstrip('/')}/v2/agent/{BOLNA_AGENT_ID}"
+        headers = {
+            "Authorization": f"Bearer {BOLNA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=headers, timeout=6.0)
+            if resp.status_code != 200:
+                return
+            agent_data = resp.json()
+            tasks = agent_data.get("tasks", [])
+            if not tasks:
+                return
+            tools_config = tasks[0].get("tools_config", {})
+            api_tools = tools_config.setdefault("api_tools", {})
+            tools_params = api_tools.setdefault("tools_params", {})
+
+            target_telemetry_url = f"{public_url.rstrip('/')}/api/live/status"
+            target_hangup_url = f"{public_url.rstrip('/')}/api/bolna/hangup"
+
+            needs_update = False
+            cur_telemetry = tools_params.get("get_live_telemetry", {}).get("url")
+            cur_hangup = tools_params.get("hangup_call", {}).get("url")
+
+            if cur_telemetry != target_telemetry_url:
+                tools_params.setdefault("get_live_telemetry", {})["url"] = target_telemetry_url
+                tools_params["get_live_telemetry"]["headers"] = {"bypass-tunnel-reminder": "true"}
+                needs_update = True
+
+            if cur_hangup != target_hangup_url:
+                tools_params.setdefault("hangup_call", {})["url"] = target_hangup_url
+                tools_params["hangup_call"]["headers"] = {"bypass-tunnel-reminder": "true"}
+                needs_update = True
+
+            if needs_update:
+                put_payload = {
+                    "agent_config": agent_data,
+                    "agent_prompts": agent_data.get("agent_prompts", {})
+                }
+                put_resp = await client.put(url, headers=headers, json=put_payload, timeout=8.0)
+                if put_resp.status_code == 200:
+                    print(f"[Bolna Sync] Successfully synced Bolna Agent tools to: {public_url}")
+    except Exception as exc:
+        print(f"[Bolna Sync Warning] Could not sync tools to {public_url}: {exc}")
+
+@app.on_event("startup")
+async def on_app_startup():
+    pub_url = get_public_base_url()
+    asyncio.create_task(sync_bolna_agent_tools(pub_url))
+
 async def check_tunnel_healthy(timeout: float = 2.0) -> tuple[bool, str]:
     # In production deployments (e.g. Render), the backend is already a public cloud URL — no tunnel needed!
-    if ENVIRONMENT == "production" or "onrender.com" in BACKEND_PUBLIC_URL:
-        return (True, BACKEND_PUBLIC_URL)
+    if ENVIRONMENT == "production" or "onrender.com" in BACKEND_PUBLIC_URL or os.getenv("RENDER"):
+        return (True, get_public_base_url())
 
     active_tunnel_file = Path(__file__).resolve().parent / ".active_tunnel"
     tunnel_url = "https://velo-ai-copilot.loca.lt"
@@ -241,7 +314,7 @@ async def check_tunnel_healthy(timeout: float = 2.0) -> tuple[bool, str]:
 
 def spawn_tunnel_background():
     global tunnel_subprocess
-    if ENVIRONMENT == "production" or "onrender.com" in BACKEND_PUBLIC_URL:
+    if ENVIRONMENT == "production" or "onrender.com" in BACKEND_PUBLIC_URL or os.getenv("RENDER"):
         return  # No local tunnel needed on cloud deployments
     import subprocess
     script_path = Path(__file__).resolve().parent.parent / "scripts" / "tunnel.js"
@@ -289,6 +362,9 @@ async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
     healthy, _ = await check_tunnel_healthy(timeout=1.5)
     if not healthy:
         spawn_tunnel_background()
+
+    # Synchronize Bolna tools with the public URL
+    asyncio.create_task(sync_bolna_agent_tools(get_public_base_url()))
 
     headers = {
         "Authorization": f"Bearer {BOLNA_API_KEY}",
@@ -562,11 +638,16 @@ def get_live_bolna_status(response: Response):
             "speed_kmh": 0,
             "limit_kmh": 70,
             "ceiling_kmh": 70.0,
+            "speed_statement": "Cruising at 0 km/h. Posted limit is 70 km/h.",
+            "speed_statement_hi": "Aapki live speed 0 km/h hai, speed limit 70 km/h hai.",
             "speed_status": "legal",
             "exceeding_status": "compliant",
             "exceeding_details": "You are not exceeding any speed threshold.",
             "current_avg_speed": "0 km/h",
             "max_allowed_pace": "70 km/h",
+            "safe_pace_ceiling": "70 km/h",
+            "pace_ceiling_statement": "Hold pace below 70 km/h to keep your corridor average legal.",
+            "pace_ceiling_statement_hi": "Corridor average legal rakhne ke liye speed 70 km/h ke neeche rakhein.",
             "status": "green",
             "camera_nearby": "Upcoming GMDA ANPR gantry along route",
             "next_camera_name": "GMDA ANPR Gantry",
@@ -575,6 +656,7 @@ def get_live_bolna_status(response: Response):
             "estimated_time_to_destination": "12 minutes",
             "covered_meters": 0,
             "remaining_meters": 800,
+            "remaining_km": 0.8,
             "banked_time_seconds": 0,
             "active_event": "idle",
             "checkpoint_index": None,
@@ -588,8 +670,19 @@ def get_live_bolna_status(response: Response):
             "cameras_remaining": 0,
             "passed_camera_names": [],
             "cameras_passed_statement": "You have passed 0 cameras so far. All upcoming cameras are ahead.",
+            "cameras_passed_statement_hi": "Abhi tak 0 camera pass hue hain. Saare cameras aage hain.",
             "camera_summary": "0 cameras passed. All upcoming cameras are ahead.",
+            "next_camera_statement": "Next ANPR gantry is 800 meters ahead.",
+            "next_camera_statement_hi": "Agla ANPR gantry 800 meter aage hai.",
+            "overspeeding_statement": "Clean record boss, zero challan risk. Safe pace maintained.",
+            "overspeeding_statement_hi": "Clean record boss, zero challan risk. Safe pace maintained.",
             "challan_risk": "Zero Risk - Clean Record",
+            "challan_risk_statement": "Clean record boss, zero challan risk. Safe pace maintained.",
+            "challan_risk_statement_hi": "Clean record boss, zero challan risk. Safe pace maintained.",
+            "latest_checkpoint_statement": "No checkpoint crossed yet. Cruising within safe ceiling.",
+            "latest_checkpoint_statement_hi": "Abhi pehla checkpoint aage hai. Safe pace maintain rakhein.",
+            "trip_progress_statement": "Stationary at trip starting point. All sensors live.",
+            "trip_progress_statement_hi": "Trip starting point par hain, sensors ready hain.",
             "trip_summary": "Stationary at trip starting point. All sensors live.",
             "situation_analysis": "Vehicle stationary at starting point. All systems nominal.",
             "coaching_note": "Aap safe speed par hain. Full legal pace maintain rakhein.",
@@ -658,8 +751,53 @@ def get_live_bolna_status(response: Response):
 
     if cleared_cams > 0:
         cams_passed_stmt = f"You have passed {cleared_cams} cameras so far out of {total_cams} total cameras on this route. {remaining_cams} cameras remaining ahead."
+        cams_passed_stmt_hi = f"Aapne {cleared_cams} cameras cross kar liye hain {total_cams} me se, {remaining_cams} camera aage bache hain."
     else:
-        cams_passed_stmt = f"You have passed 0 cameras so far. None of the {total_cams} cameras have been passed yet; all {total_cams} cameras are ahead."
+        cams_passed_stmt = f"You have passed 0 cameras so far. All {total_cams} cameras are still ahead."
+        cams_passed_stmt_hi = f"Abhi tak 0 camera pass hue hain. Saare {total_cams} camera aage hain."
+
+    next_cam_stmt = f"Next ANPR gantry at {cam_name} is {dist_m} meters ahead, reaching in {time_to_cam_human}."
+    next_cam_stmt_hi = f"Agla ANPR gantry {cam_name} {dist_m} meter aage hai, lagbhag {time_to_cam_human} me pahunchenge."
+
+    if ceiling_val < limit_val:
+        pace_ceiling_stmt = f"Safe ceiling is {round(ceiling_val)} km/h to offset earlier speed debt and avoid an average-speed challan."
+        pace_ceiling_stmt_hi = f"Earlier speed debt offset karne aur average-speed challan se bachne ke liye safe ceiling {round(ceiling_val)} km/h hai."
+    else:
+        pace_ceiling_stmt = f"Hold pace below {round(ceiling_val)} km/h to keep your corridor average legal."
+        pace_ceiling_stmt_hi = f"Corridor average legal rakhne ke liye speed {round(ceiling_val)} km/h ke neeche rakhein."
+
+    speed_stmt = f"Cruising at {speed_val} km/h. Posted limit is {limit_val} km/h."
+    speed_stmt_hi = f"Aapki live speed {speed_val} km/h hai, speed limit {limit_val} km/h hai."
+
+    if is_speeding or is_ceiling_breached:
+        excess_amt = round(excess_limit if is_speeding else excess_ceiling)
+        overspeed_stmt = f"You are exceeding safe ceiling by +{excess_amt} km/h! Slow down immediately."
+        overspeed_stmt_hi = f"Aap safe ceiling se +{excess_amt} km/h upar chal rahe hain! Turant speed slow karein."
+        challan_risk_stmt = f"High Challan Risk! Exceeding safe ceiling by +{excess_amt} km/h. Slow down to avoid challan."
+        challan_risk_stmt_hi = f"Challan ka risk hai! Aap ceiling se +{excess_amt} km/h upar hain. Turant speed kam karein."
+    else:
+        overspeed_stmt = "Clean record boss, zero challan risk. Safe pace maintained."
+        overspeed_stmt_hi = "Clean record boss, zero challan risk. Safe pace maintained."
+        challan_risk_stmt = "Clean record boss, zero challan risk. Safe pace maintained."
+        challan_risk_stmt_hi = "Clean record boss, zero challan risk. Safe pace maintained."
+
+    latest_cp = latest_sess.get("latest_checkpoint")
+    if latest_cp:
+        cp_title = latest_cp.get("name", f"Checkpoint {latest_cp.get('index', 1)}")
+        cp_speed = round(latest_cp.get("speed_kmh", speed_val))
+        cp_ceil = round(latest_cp.get("ceiling_kmh", ceiling_val))
+        if latest_cp.get("is_exceeding"):
+            checkpoint_stmt = f"Warning: {cp_title} crossed at {cp_speed} km/h exceeding ceiling. You are doing it the wrong way, decelerate now!"
+            checkpoint_stmt_hi = f"Warning: {cp_title} crossed at {cp_speed} km/h exceeding ceiling {cp_ceil} km/h. Yeh wrong way hai, turant decelerate karein!"
+        else:
+            checkpoint_stmt = f"{cp_title} crossed at {cp_speed} km/h. You are doing it the right way! Safe pace maintained."
+            checkpoint_stmt_hi = f"{cp_title} crossed at {cp_speed} km/h. Aap sahi tareeqe se safe pace maintain kar rahe hain (Right Way)!"
+    else:
+        checkpoint_stmt = f"Approaching Checkpoint 1. Safe legal ceiling is {ceiling_val} km/h. Safe pace maintained."
+        checkpoint_stmt_hi = f"Pehle checkpoint ki taraf badh rahe hain. Safe ceiling {ceiling_val} km/h hai."
+
+    trip_progress_stmt = f"{remaining_km} kilometers remaining. Estimated time to destination is {eta_dest_human}."
+    trip_progress_stmt_hi = f"{remaining_km} kilometer bache hain. Destination pahunchne me lagbhag {eta_dest_human} lagenge."
 
     trip_challans = latest_sess.get("challan_count", 0)
     elapsed_s = latest_sess.get("journey_elapsed_s", 0)
@@ -675,7 +813,6 @@ def get_live_bolna_status(response: Response):
 
     # Dynamic situation analysis with persistent Checkpoint Context, 'Camera is heading' and 'exceeding or not'
     analysis_parts = []
-    latest_cp = latest_sess.get("latest_checkpoint")
 
     # Persistent Checkpoint Status Injection
     if latest_cp:
@@ -738,6 +875,9 @@ def get_live_bolna_status(response: Response):
         "limit_kmh": limit_val,
         "ceiling_kmh": ceiling_val,
         "max_allowed_pace": f"{ceiling_val} km/h",
+        "safe_pace_ceiling": f"{ceiling_val} km/h",
+        "speed_statement": speed_stmt,
+        "speed_statement_hi": speed_stmt_hi,
         "speed_status": speed_status_str,
         "exceeding_status": exceeding_status,
         "exceeding_details": exceeding_details,
@@ -750,6 +890,7 @@ def get_live_bolna_status(response: Response):
         "estimated_time_to_destination": eta_dest_human,
         "covered_meters": covered_m,
         "remaining_meters": remaining_m,
+        "remaining_km": remaining_km,
         "banked_time_seconds": banked_time_val,
         "active_event": event_type,
         "checkpoint_index": checkpoint_idx or (latest_cp["index"] if latest_cp else None),
@@ -760,7 +901,9 @@ def get_live_bolna_status(response: Response):
         "latest_checkpoint_ceiling": f"{latest_cp['ceiling_kmh']} km/h" if latest_cp else None,
         "latest_checkpoint_exceeding": latest_cp["is_exceeding"] if latest_cp else False,
         "latest_checkpoint_status_label": latest_cp["status_label"] if latest_cp else "No checkpoint crossed yet",
-        "latest_checkpoint_advice": latest_cp["advice"] if latest_cp else "Maintain safe legal speed within ceiling.",
+        "latest_checkpoint_advice": latest_cp["advice"] if latest_cp else checkpoint_stmt,
+        "latest_checkpoint_statement": checkpoint_stmt,
+        "latest_checkpoint_statement_hi": checkpoint_stmt_hi,
         "checkpoints_crossed_count": len(latest_sess.get("checkpoints", {})),
         "note_checkpoints_are_not_cameras": "Checkpoints are quarter-distance route markers (CP1 25%, CP2 50%, CP3 75%), NOT speed cameras. Do NOT confuse checkpoints with cameras.",
         "cameras_passed": cleared_cams,
@@ -772,9 +915,20 @@ def get_live_bolna_status(response: Response):
         "cameras_remaining": remaining_cams,
         "passed_camera_names": passed_cam_names,
         "cameras_passed_statement": cams_passed_stmt,
+        "cameras_passed_statement_hi": cams_passed_stmt_hi,
         "camera_summary": f"{cleared_cams} cameras passed out of {total_cams} total cameras on this route. {remaining_cams} cameras remaining ahead.",
-        "test_case_id": test_case_id,
+        "next_camera_statement": next_cam_stmt,
+        "next_camera_statement_hi": next_cam_stmt_hi,
+        "pace_ceiling_statement": pace_ceiling_stmt,
+        "pace_ceiling_statement_hi": pace_ceiling_stmt_hi,
+        "overspeeding_statement": overspeed_stmt,
+        "overspeeding_statement_hi": overspeed_stmt_hi,
         "challan_risk": latest_sess.get("challan_risk", "Zero Risk - Clean Record"),
+        "challan_risk_statement": challan_risk_stmt,
+        "challan_risk_statement_hi": challan_risk_stmt_hi,
+        "trip_progress_statement": trip_progress_stmt,
+        "trip_progress_statement_hi": trip_progress_stmt_hi,
+        "test_case_id": test_case_id,
         "trip_summary": trip_summary,
         "route_origin": origin_name,
         "route_destination": dest_name,
@@ -1065,6 +1219,14 @@ def end_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     sess = sessions.pop(session_id)
     return {"status": "ended", "session_id": session_id, "section": sess["section_name"]}
+
+
+# ─── Mount Built Frontend Static Files ───────────────────────────────────────
+from fastapi.staticfiles import StaticFiles
+
+static_dir = Path(__file__).resolve().parent / "static"
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 
 
 if __name__ == "__main__":

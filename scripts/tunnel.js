@@ -84,14 +84,32 @@ async function startTunnel() {
   }
 }
 
+const PRODUCTION_URL = 'https://velo-ai-u5tz.onrender.com';
+
+function cleanupAndRestoreProduction() {
+  console.log(`[TUNNEL] Restoring Bolna Cloud Agent to production: ${PRODUCTION_URL}...`);
+  recordActiveTunnel(PRODUCTION_URL);
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  try {
+    const { execSync } = import('child_process');
+    exec(`${pythonCmd} scripts/update_bolna_hangup.py ${PRODUCTION_URL}`);
+  } catch {}
+}
+
 process.on('SIGINT', () => {
+  cleanupAndRestoreProduction();
   if (activeTunnel) activeTunnel.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
+  cleanupAndRestoreProduction();
   if (activeTunnel) activeTunnel.close();
   process.exit(0);
+});
+
+process.on('exit', () => {
+  recordActiveTunnel(PRODUCTION_URL);
 });
 
 startTunnel();
