@@ -90,6 +90,10 @@ class TunnelBypassMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["bypass-tunnel-reminder"] = "true"
         response.headers["ngrok-skip-browser-warning"] = "true"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, proxy-revalidate, s-maxage=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Surrogate-Control"] = "no-store"
         return response
 
 app.add_middleware(TunnelBypassMiddleware)
@@ -613,15 +617,32 @@ async def update_live_telemetry(payload: LiveTelemetryPayload):
 
 @app.get("/api/live/status")
 @app.get("/api/session/status")
-def get_live_bolna_status(response: Response):
+@app.post("/api/live/status")
+@app.post("/api/session/status")
+async def get_live_bolna_status(
+    request: Request,
+    response: Response,
+    metric_category: Optional[str] = None,
+    query: Optional[str] = None,
+    trigger: Optional[str] = None
+):
     """
     Direct endpoint for Bolna agent tools without requiring session_id.
     Returns real-time vehicle speed, camera proximity, legal ceiling speed, ETA, and challan risk.
-    Guaranteed zero-cache freshness for real-time AI tool querying.
+    Guaranteed zero-cache freshness for real-time AI tool querying across GET and POST.
     """
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, proxy-revalidate"
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                metric_category = metric_category or body.get("metric_category") or body.get("query") or body.get("trigger")
+        except Exception:
+            pass
+
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, proxy-revalidate, s-maxage=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+    response.headers["Surrogate-Control"] = "no-store"
 
     if "live_ride" in sessions:
         latest_sess = sessions["live_ride"]
@@ -686,7 +707,9 @@ def get_live_bolna_status(response: Response):
             "trip_summary": "Stationary at trip starting point. All sensors live.",
             "situation_analysis": "Vehicle stationary at starting point. All systems nominal.",
             "coaching_note": "Aap safe speed par hain. Full legal pace maintain rakhein.",
-            "freshness_timestamp": round(time.time(), 3)
+            "freshness_timestamp": round(time.time(), 3),
+            "server_time_ms": int(time.time() * 1000),
+            "query_category": metric_category or trigger or "all"
         }
 
     speed_val = round(latest_sess.get("current_speed_kmh", 0))
@@ -935,7 +958,9 @@ def get_live_bolna_status(response: Response):
         "progress_percent": progress_pct,
         "situation_analysis": situation_analysis,
         "coaching_note": advice,
-        "freshness_timestamp": round(time.time(), 3)
+        "freshness_timestamp": round(time.time(), 3),
+        "server_time_ms": int(time.time() * 1000),
+        "query_category": metric_category or trigger or "all"
     }
 
 

@@ -41,18 +41,25 @@ if not telemetry_tool:
 
 telemetry_tool['parameters'] = {
     'type': 'object',
-    'required': [],
-    'properties': {}
+    'required': ['metric_category'],
+    'properties': {
+        'metric_category': {
+            'type': 'string',
+            'enum': ['speed', 'cameras', 'safe_pace', 'overspeeding_risk', 'checkpoint', 'progress', 'all'],
+            'description': 'Category of live cockpit telemetry requested: "speed", "cameras", "safe_pace", "overspeeding_risk", "checkpoint", "progress", or "all".'
+        }
+    }
 }
 telemetry_tool['description'] = (
-    "MANDATORY: Call this tool every single time the driver asks about: "
+    "MANDATORY REAL-TIME SENSOR TOOL: The vehicle is in motion and sensor values change every split second. "
+    "You MUST call this tool on EVERY SINGLE TURN without exception whenever the driver asks about: "
     "1) Speed or speed limits ('what is my speed', 'meri speed kitni hai', 'speed limit'), "
     "2) Cameras ('how many cameras passed', 'kitne camera cross ho gaye', 'total cameras', 'next camera'), "
     "3) Dynamic safe pace ceiling ('how fast can I drive', 'safe pace kya hai', 'ceiling speed', 'kitni speed maintain karoon'), "
     "4) Overspeeding or challan risk ('am I speeding', 'kya mai overspeeding kar raha hu', 'challan katega kya', 'safe hu kya'), "
     "5) Checkpoints ('how did I do on the checkpoint', 'sahi chal raha hu ya galat', 'checkpoint status', 'right way or wrong way'), "
     "6) ETA or trip progress ('kitna time bacha hai', 'how much time', 'trip progress', 'where are we'). "
-    "Returns 100% fresh real-time vehicle cockpit metrics."
+    "STRICTLY FORBIDDEN to answer from previous conversation memory or cached numbers. Always fetch live telemetry."
 )
 telemetry_tool['pre_call_message'] = None
 
@@ -115,6 +122,13 @@ You are FRIDAY, the high-tech, proactive automotive voice co-pilot for VELO AI, 
 You sound natural, razor-sharp, reassuring, and alert—like an elite Formula 1 race engineer or Iron Man's FRIDAY.
 You speak clearly in natural English or fluent Hinglish depending on what the driver speaks. Keep spoken statements punchy and concise (under 16 words) because the driver is at speed on the road.
 
+# ABSOLUTE REAL-TIME ZERO-CACHE LAW (NON-NEGOTIABLE):
+1. THE VEHICLE IS IN MOTION: Cockpit telemetry (speed, cameras passed, pace ceiling, distance, checkpoints) changes EVERY SECOND.
+2. ABSOLUTE ZERO CACHING: NEVER reuse, remember, or assume speed, camera counts, ceiling, checkpoints, or risk from earlier turns in the conversation.
+3. CONVERSATION HISTORY IS OBSOLETE: Any telemetry number or state mentioned in earlier messages is expired and invalid.
+4. CALL `get_live_telemetry` ON EVERY SINGLE QUERY: Whenever the driver asks ANY question regarding speed, cameras, safe pace, overspeeding, challan risk, checkpoints, or ETA, you MUST execute `get_live_telemetry` fresh on THAT EXACT TURN.
+5. NEVER answer from your own memory or conversation history under any circumstances. Always speak ONLY the facts returned by the live `get_live_telemetry` tool.
+
 # MANDATORY TOOL USAGE: `get_live_telemetry`
 You have direct real-time access to cockpit sensors via `get_live_telemetry`.
 NEVER say 'that detail is not with me', 'I do not have this detail', or 'our team will help you'. You HAVE all real-time sensor metrics!
@@ -169,6 +183,12 @@ system_prompt_hi = """# IDENTITY & PERSONA: FRIDAY (VELO AI LIVE CO-PILOT - HING
 आप FRIDAY हैं — VELO AI की हाई-टेक, प्रोएक्टिव वॉइस को-पायलट, जो गुरुग्राम एक्सप्रेसवे और NH-48 कॉरिडोर पर लाइव डिप्लॉयड हैं।
 आप बिल्कुल नेचुरल, फ्रेंडली और अलर्ट फॉर्मूला-1 रेस इंजीनियर या आयरन मैन की FRIDAY की तरह बात करती हैं।
 आप ड्राइवर से स्वाभाविक, धाराप्रवाह हिंग्लिश या हिंदी में बात करती हैं। उत्तर हमेशा छोटे, स्पष्ट (16 शब्दों से कम) रखें क्योंकि ड्राइवर गाड़ी चला रहा है।
+
+# सख्त रियल-टाइम ज़ीरो-कैश नियम (STRICT ZERO-CACHE REAL-TIME LAW):
+1. गाड़ी हाईवे पर लगातार चल रही है: स्पीड, कैमरे, पेस सीलिंग और चेकपॉइंट्स हर सेकंड बदलते हैं!
+2. पुरानी बातचीत का डेटा कभी दोबारा इस्तेमाल मत कीजिए: पिछली चैट (previous conversation turns) में जो स्पीड या कैमरा नंबर थे, वे एक्सपायर हो चुके हैं।
+3. कभी याददाश्त (memory) से जवाब मत दीजिए: जब भी ड्राइवर स्पीड, कैमरे, पेस सीलिंग, चालान रिस्क, चेकपॉइंट या टाइम के बारे में पूछे, आपको हर सवाल पर अनिवार्य रूप से नया `get_live_telemetry` टूल कॉल करना ही होगा।
+4. टूल से मिले ताज़ा डेटा को ही बोलिए: टूल रिस्पॉन्स में जो फ़ील्ड्स मिलें, केवल उन्हीं के आधार पर उत्तर दें। कभी भी पुराने टर्न का डेटा रिपीट मत कीजिए।
 
 # अनिवार्य टूल उपयोग: `get_live_telemetry`
 आपके पास गाड़ी के सभी लाइव सेंसर्स का सीधा एक्सेस `get_live_telemetry` टूल के जरिए है।

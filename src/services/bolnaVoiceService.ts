@@ -182,26 +182,18 @@ class BolnaVoiceService {
     this.notifyError(null);
     this.notifyState('connecting');
 
+    // Zero-cache architecture: ONLY pass static journey/route metadata into session variables.
+    // Dynamic real-time metrics (speed, cameras passed, pace ceiling, checkpoints, risk)
+    // MUST NEVER be injected as static session variables, guaranteeing FRIDAY always queries
+    // the live get_live_telemetry tool for fresh cockpit data on every user interaction.
     const userData: Record<string, unknown> = {
       route_id: context?.route_id || 'gurgaon-nh48',
       route_origin: context?.route_origin || 'Gurugram',
       route_destination: context?.route_destination || 'Destination',
       vehicle_class: context?.vehicle_class || 'car',
       posted_speed_limit: context?.posted_speed_limit ?? 70,
-      current_speed: context?.current_speed ?? 0,
-      current_avg_speed: context?.current_avg_speed ?? 0,
-      pace_ceiling: context?.pace_ceiling ?? 70,
       section_name: context?.section_name || 'Gurugram NH-48 Corridor',
-      next_camera: context?.next_camera || 'Upcoming Camera Gantry',
-      distance_to_camera_m: context?.distance_to_camera_m ?? 800,
-      remaining_km: context?.remaining_km ?? 0,
-      status_alert: context?.status_alert || 'green',
-      challan_risk: context?.challan_risk || 'Zero Risk - Clean Record',
-      total_cameras: context?.total_cameras ?? 0,
-      cleared_cameras: context?.cleared_cameras ?? 0,
-      cameras_passed: context?.cameras_passed ?? context?.cleared_cameras ?? 0,
-      cameras_remaining: context?.cameras_remaining ?? 0,
-      passed_camera_names: context?.passed_camera_names ?? []
+      total_cameras: context?.total_cameras ?? 0
     };
 
     try {

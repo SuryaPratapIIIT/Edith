@@ -716,33 +716,35 @@ export default function App() {
 
     const last = lastSentTelemetryRef.current;
 
-    // Meaningful driving events:
-    // 1. Speed changed by >= 2 km/h
-    // 2. Traveled >= 50 meters
+    // Meaningful driving events (Zero-cache real-time dispatch):
+    // 1. Speed changed by >= 0.5 km/h
+    // 2. Traveled >= 10 meters
     // 3. Alert status changed (green <-> amber <-> red)
-    // 4. Target camera changed or within critical 150m approach window (every 25m)
+    // 4. Target camera changed or camera approach distance shifted >= 10m
     // 5. Challan status changed
     // 6. Camera crossed / passed count changed
+    const lastDistToCamera = last ? ((last as any).distToCamera ?? 0) : 0;
     const hasMeaningfulChange =
       !last ||
-      Math.abs(currentSpeed - last.speed) >= 2 ||
-      Math.abs(covered - last.covered) >= 50 ||
+      Math.abs(currentSpeed - last.speed) >= 0.5 ||
+      Math.abs(covered - last.covered) >= 10 ||
       alert !== last.alert ||
       cameraName !== last.camera ||
       challanCount !== last.challanCount ||
       currentClearedCams !== (last as any).clearedCameras ||
-      (distCamera <= 150 && Math.abs(distCamera - last.distToCamera) >= 25);
+      Math.abs(distCamera - lastDistToCamera) >= 10;
 
-    // Keepalive: If car is stopped or cruising with identical speed, ping once every 5 seconds
-    const isKeepaliveDue = timeSinceLastSync >= 5000;
+    // Guaranteed 1 Hz (1000ms) sync while ride is playing/driving, 2000ms when stationary
+    const keepaliveThreshold = isPlaying ? 1000 : 2000;
+    const isKeepaliveDue = timeSinceLastSync >= keepaliveThreshold;
 
     // If no meaningful change and keepalive interval not reached, SKIP network request!
     if (!hasMeaningfulChange && !isKeepaliveDue) {
       return;
     }
 
-    // Minimum throttle between sends (at least 800ms) to prevent microbursts
-    if (!isKeepaliveDue && timeSinceLastSync < 800) {
+    // High-responsiveness microburst throttle: allow real-time updates every 250ms on slider/driving changes
+    if (!isKeepaliveDue && timeSinceLastSync < 250) {
       return;
     }
 
@@ -824,11 +826,11 @@ export default function App() {
     journeyElapsed_s
   ]);
 
-  // Gentle 5-Second Idle Keepalive Pulse: Ensures stationary vehicles refresh timestamp without spamming
+  // 2-Second Idle Keepalive Pulse: Ensures stationary vehicles refresh live timestamp
   useEffect(() => {
     const keepaliveTimer = setInterval(() => {
       const now = Date.now();
-      if (now - lastTelemetrySyncTimeRef.current >= 5000) {
+      if (now - lastTelemetrySyncTimeRef.current >= 2000) {
         const currentKeepalivePassed = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m);
         const payload = {
           session_id: 'live_ride',
@@ -866,7 +868,7 @@ export default function App() {
           body: JSON.stringify(payload)
         }).catch(() => {});
       }
-    }, 5000);
+    }, 2000);
 
     return () => clearInterval(keepaliveTimer);
   }, [
