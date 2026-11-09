@@ -1,6 +1,6 @@
 <div align="center">
 
-# VELO AI // VOICE-FIRST PACE COACH
+#                                        VELO AI 
 ### Real-Time Average Speed Pacing & ANPR Radar Defense for Smart Expressways
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
