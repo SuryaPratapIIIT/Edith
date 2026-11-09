@@ -230,14 +230,14 @@ def get_public_base_url() -> str:
     render_url = os.getenv("RENDER_EXTERNAL_URL")
     if render_url and render_url.strip():
         return render_url.strip().rstrip("/")
-    backend_pub = os.getenv("BACKEND_PUBLIC_URL")
-    if backend_pub and backend_pub.strip() and "localhost" not in backend_pub and "127.0.0.1" not in backend_pub:
-        return backend_pub.strip().rstrip("/")
     active_tunnel_file = Path(__file__).resolve().parent / ".active_tunnel"
     if active_tunnel_file.exists():
         content = active_tunnel_file.read_text(encoding="utf-8").strip()
-        if content.startswith("http") and "loca.lt" not in content:
+        if content.startswith("http"):
             return content.rstrip("/")
+    backend_pub = os.getenv("BACKEND_PUBLIC_URL")
+    if backend_pub and backend_pub.strip() and "localhost" not in backend_pub and "127.0.0.1" not in backend_pub and "your-tunnel-subdomain" not in backend_pub:
+        return backend_pub.strip().rstrip("/")
     return "https://velo-ai-u5tz.onrender.com"
 
 async def sync_bolna_agent_tools(public_url: str):

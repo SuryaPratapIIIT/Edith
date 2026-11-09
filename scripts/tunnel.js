@@ -71,18 +71,34 @@ async function startTunnel() {
 
     tunnel.on('close', () => {
       console.warn('[TUNNEL CLOSED] Tunnel connection dropped.');
-      scheduleReconnect(2000);
+      scheduleReconnect(1500);
     });
 
     tunnel.on('error', (err) => {
       console.error('[TUNNEL ERROR] Tunnel socket error:', err.message || err);
-      scheduleReconnect(3000);
+      scheduleReconnect(2000);
     });
   } catch (err) {
     console.error('[TUNNEL INIT ERROR]:', err.message);
-    scheduleReconnect(3000);
+    scheduleReconnect(2500);
   }
 }
+
+// Keep Node.js event loop persistently active and ping tunnel health periodically
+setInterval(async () => {
+  if (activeTunnel && !isReconnecting) {
+    try {
+      // Periodic keepalive to ensure tunnel socket does not become idle
+      const checkUrl = `${activeTunnel.url}/health`;
+      const client = checkUrl.startsWith('https') ? https : http;
+      client.get(checkUrl, { headers: { 'bypass-tunnel-reminder': 'true' } }, (res) => {
+        res.resume();
+      }).on('error', () => {
+        // Handled by tunnel close/error events
+      });
+    } catch {}
+  }
+}, 15000);
 
 const PRODUCTION_URL = 'https://velo-ai-u5tz.onrender.com';
 
