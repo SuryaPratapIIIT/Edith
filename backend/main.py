@@ -358,6 +358,37 @@ async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
 
     user_data = (req.user_data if req else {}) or {}
 
+    # Zero Cache: Instantly populate live_ride session with caller's real-time parameters
+    if user_data:
+        if "live_ride" not in sessions:
+            sessions["live_ride"] = {}
+        live_s = sessions["live_ride"]
+        if "current_speed" in user_data:
+            live_s["current_speed_kmh"] = user_data["current_speed"]
+        if "posted_speed_limit" in user_data:
+            live_s["limit_kmh"] = user_data["posted_speed_limit"]
+        if "pace_ceiling" in user_data:
+            live_s["ceiling_kmh"] = user_data["pace_ceiling"]
+        if "section_name" in user_data:
+            live_s["section_name"] = user_data["section_name"]
+        if "next_camera" in user_data:
+            live_s["next_camera"] = user_data["next_camera"]
+        if "distance_to_camera_m" in user_data:
+            live_s["distance_to_camera_m"] = user_data["distance_to_camera_m"]
+        if "total_cameras" in user_data:
+            live_s["total_cameras"] = user_data["total_cameras"]
+        if "cleared_cameras" in user_data or "cameras_passed" in user_data:
+            cams = user_data.get("cameras_passed", user_data.get("cleared_cameras", 0))
+            live_s["cameras_passed"] = cams
+            live_s["cleared_cameras"] = cams
+        if "remaining_km" in user_data:
+            live_s["remaining_m"] = round(float(user_data["remaining_km"]) * 1000)
+        if "route_origin" in user_data:
+            live_s["route_origin"] = user_data["route_origin"]
+        if "route_destination" in user_data:
+            live_s["route_destination"] = user_data["route_destination"]
+        live_s["updated_at"] = time.time()
+
     # Automatically ensure tunnel is online before session connects
     healthy, _ = await check_tunnel_healthy(timeout=1.5)
     if not healthy:
