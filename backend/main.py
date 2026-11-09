@@ -358,37 +358,6 @@ async def create_bolna_web_session(req: Optional[BolnaSessionRequest] = None):
 
     user_data = (req.user_data if req else {}) or {}
 
-    # Zero Cache: Instantly populate live_ride session with caller's real-time parameters
-    if user_data:
-        if "live_ride" not in sessions:
-            sessions["live_ride"] = {}
-        live_s = sessions["live_ride"]
-        if "current_speed" in user_data:
-            live_s["current_speed_kmh"] = user_data["current_speed"]
-        if "posted_speed_limit" in user_data:
-            live_s["limit_kmh"] = user_data["posted_speed_limit"]
-        if "pace_ceiling" in user_data:
-            live_s["ceiling_kmh"] = user_data["pace_ceiling"]
-        if "section_name" in user_data:
-            live_s["section_name"] = user_data["section_name"]
-        if "next_camera" in user_data:
-            live_s["next_camera"] = user_data["next_camera"]
-        if "distance_to_camera_m" in user_data:
-            live_s["distance_to_camera_m"] = user_data["distance_to_camera_m"]
-        if "total_cameras" in user_data:
-            live_s["total_cameras"] = user_data["total_cameras"]
-        if "cleared_cameras" in user_data or "cameras_passed" in user_data:
-            cams = user_data.get("cameras_passed", user_data.get("cleared_cameras", 0))
-            live_s["cameras_passed"] = cams
-            live_s["cleared_cameras"] = cams
-        if "remaining_km" in user_data:
-            live_s["remaining_m"] = round(float(user_data["remaining_km"]) * 1000)
-        if "route_origin" in user_data:
-            live_s["route_origin"] = user_data["route_origin"]
-        if "route_destination" in user_data:
-            live_s["route_destination"] = user_data["route_destination"]
-        live_s["updated_at"] = time.time()
-
     # Automatically ensure tunnel is online before session connects
     healthy, _ = await check_tunnel_healthy(timeout=1.5)
     if not healthy:
@@ -535,7 +504,6 @@ def update_telemetry(session_id: str, ping: LocationTelemetry):
 async def update_live_telemetry(payload: LiveTelemetryPayload):
     """
     Syncs real-time ride telemetry from frontend so Bolna agent tools always get instant live data.
-    Ensures zero stale cache: clears past session state on trip reset or new route start.
     """
     session_id = payload.session_id or "live_ride"
     if session_id not in sessions:
@@ -547,15 +515,6 @@ async def update_live_telemetry(payload: LiveTelemetryPayload):
         }
 
     sess = sessions[session_id]
-
-    # Zero Stale Cache: Reset ride milestones & checkpoints when resetting or planning a new route
-    if payload.event_type == "reset" or (payload.covered_m == 0 and (payload.journey_elapsed_s or 0) == 0 and payload.event_type not in ["checkpoint", "camera_100m"]):
-        sess["checkpoints"] = {}
-        sess["latest_checkpoint"] = None
-        sess["checkpoint_index"] = None
-        sess["checkpoint_name"] = None
-        sess["challan_count"] = 0
-
     sess["section_name"] = payload.section_name or sess.get("section_name", "Gurugram Corridor")
     sess["current_speed_kmh"] = payload.speed_kmh
     sess["limit_kmh"] = payload.limit_kmh
@@ -660,10 +619,9 @@ def get_live_bolna_status(response: Response):
     Returns real-time vehicle speed, camera proximity, legal ceiling speed, ETA, and challan risk.
     Guaranteed zero-cache freshness for real-time AI tool querying.
     """
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0, proxy-revalidate"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, proxy-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["Surrogate-Control"] = "no-store"
 
     if "live_ride" in sessions:
         latest_sess = sessions["live_ride"]
@@ -982,16 +940,11 @@ def get_live_bolna_status(response: Response):
 
 
 @app.get("/api/sessions/{session_id}/status")
-def get_bolna_status(session_id: str, response: Response):
+def get_bolna_status(session_id: str):
     """
     Bolna agent get_pace_status tool endpoint.
     Returns a human-readable summary for the voice agent to read back in Hinglish.
-    Anti-cache headers guarantee 100% fresh live sensor metrics on every single call.
     """
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0, proxy-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    response.headers["Surrogate-Control"] = "no-store"
     if session_id not in sessions:
         return {"error": "No active ride session found for this rider. Please start a session from the app."}
 

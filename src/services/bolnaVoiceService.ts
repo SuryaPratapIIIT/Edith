@@ -179,36 +179,6 @@ class BolnaVoiceService {
       await fetch(apiUrl('/api/bolna/reset-hangup'), { method: 'POST' });
     } catch {}
 
-    // Instant Pre-Call Telemetry Sync: Guarantees backend session reflects live vehicle state right at call launch
-    try {
-      await fetch(apiUrl('/api/telemetry/live'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-        body: JSON.stringify({
-          session_id: 'live_ride',
-          section_name: context?.section_name || 'Gurugram NH-48 Corridor',
-          speed_kmh: context?.current_speed ?? 0,
-          limit_kmh: context?.posted_speed_limit ?? 70,
-          ceiling_kmh: context?.pace_ceiling ?? 70,
-          current_avg_kmh: context?.current_avg_speed ?? 0,
-          banked_time_s: 0,
-          covered_m: 0,
-          remaining_m: Math.round((context?.remaining_km ?? 10) * 1000),
-          next_camera: context?.next_camera || 'Upcoming Camera Gantry',
-          distance_to_camera_m: context?.distance_to_camera_m ?? 800,
-          challan_risk: context?.challan_risk || 'Zero Risk - Clean Record',
-          alert: context?.status_alert || 'green',
-          route_origin: context?.route_origin || 'Gurugram',
-          route_destination: context?.route_destination || 'Destination',
-          total_cameras: context?.total_cameras ?? 0,
-          cleared_cameras: context?.cameras_passed ?? context?.cleared_cameras ?? 0,
-          cameras_passed: context?.cameras_passed ?? context?.cleared_cameras ?? 0,
-          cameras_remaining: context?.cameras_remaining ?? 0,
-          passed_camera_names: context?.passed_camera_names ?? []
-        })
-      });
-    } catch {}
-
     this.notifyError(null);
     this.notifyState('connecting');
 

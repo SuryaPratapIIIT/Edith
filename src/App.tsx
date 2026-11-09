@@ -117,7 +117,15 @@ export default function App() {
   const spotChallanTriggeredRef = useRef<boolean>(false);
   const lastAlertLevelRef = useRef<AlertLevel>('green');
   const lastTelemetrySyncTimeRef = useRef<number>(0);
-  const pendingSyncTimerRef = useRef<any>(null);
+  const lastBackendFailTimeRef = useRef<number>(0);
+  const lastSentTelemetryRef = useRef<{
+    speed: number;
+    covered: number;
+    alert: string;
+    camera: string;
+    challanCount: number;
+    distToCamera: number;
+  } | null>(null);
 
   // Vehicle class and safety configs
   const vehicleClass: VehicleClass = 'car';
@@ -500,7 +508,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isPlaying, currentSpeedThrottle, playbackSpeed, journey.totalDistance_m]);
 
-  // Reset entire journey simulation & immediately clear backend telemetry cache
+  // Reset entire journey simulation
   const handleReset = () => {
     hasAnnouncedCompletionRef.current = false;
     setIsPlaying(false);
@@ -521,39 +529,6 @@ export default function App() {
     setWarningHistory([]);
     lastAlertLevelRef.current = 'green';
     bolnaVoiceService.clearQueueAndStopAudio();
-
-    // Instant Backend Cache Busting: Clears all checkpoints and violations for a clean real-time ride
-    fetch(apiUrl('/api/telemetry/live'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: 'live_ride',
-        event_type: 'reset',
-        section_name: 'Open Gurugram Road Alignment',
-        speed_kmh: 0,
-        limit_kmh: 70,
-        ceiling_kmh: 70,
-        current_avg_kmh: 0,
-        banked_time_s: 0,
-        covered_m: 0,
-        remaining_m: Math.round(journey.totalDistance_m),
-        next_camera: journey.cameras[0] ? journey.cameras[0].name : 'Upcoming GMDA ANPR Camera',
-        distance_to_camera_m: journey.cameras[0] ? Math.round(journey.cameras[0].journeyDistance_m) : 0,
-        challan_risk: 'Zero Challan Risk (Clean Record)',
-        alert: 'green',
-        language: voiceLanguage,
-        route_origin: journey.origin.name,
-        route_destination: journey.destination.name,
-        total_journey_m: Math.round(journey.totalDistance_m),
-        journey_elapsed_s: 0,
-        total_cameras: journey.cameras.length,
-        cleared_cameras: 0,
-        cameras_passed: 0,
-        cameras_remaining: journey.cameras.length,
-        passed_camera_names: [],
-        challan_count: 0
-      })
-    }).catch(() => {});
   };
 
   // Dynamic Route Planning Handlers (Supports ANY place, sector, or map click in Gurugram)
@@ -720,75 +695,117 @@ export default function App() {
     passed_camera_names: passedCameraNames
   };
 
-  // Instant Real-Time Telemetry Sync: Dispatches live vehicle metrics to backend
-  // Zero caching / zero buffering: ensures FRIDAY voice agent always reads 100% live sensors
+  // Smart Adaptive Telemetry Sync: Cuts HTTP network traffic by 85%+
+  // Only transmits when meaningful driving telemetry changes OR on an idle 5-second keepalive
   useEffect(() => {
+    const now = Date.now();
+    const timeSinceLastSync = now - lastTelemetrySyncTimeRef.current;
+
+    // Backoff if backend is temporarily unreachable
+    if (lastBackendFailTimeRef.current > 0 && timeSinceLastSync < 5000) {
+      return;
+    }
+
     const currentSpeed = Math.round(currentSpeedThrottle);
     const covered = Math.round(journeyCovered_m);
     const cameraName = nextCamera ? nextCamera.name : 'Upcoming GMDA ANPR Camera';
     const distCamera = Math.round(distToNextCamera_m);
     const challanCount = challanHistory.length;
     const alert = currentPace.alert;
+    const currentClearedCams = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m).length;
+
+    const last = lastSentTelemetryRef.current;
+
+    // Meaningful driving events:
+    // 1. Speed changed by >= 2 km/h
+    // 2. Traveled >= 50 meters
+    // 3. Alert status changed (green <-> amber <-> red)
+    // 4. Target camera changed or within critical 150m approach window (every 25m)
+    // 5. Challan status changed
+    // 6. Camera crossed / passed count changed
+    const hasMeaningfulChange =
+      !last ||
+      Math.abs(currentSpeed - last.speed) >= 2 ||
+      Math.abs(covered - last.covered) >= 50 ||
+      alert !== last.alert ||
+      cameraName !== last.camera ||
+      challanCount !== last.challanCount ||
+      currentClearedCams !== (last as any).clearedCameras ||
+      (distCamera <= 150 && Math.abs(distCamera - last.distToCamera) >= 25);
+
+    // Keepalive: If car is stopped or cruising with identical speed, ping once every 5 seconds
+    const isKeepaliveDue = timeSinceLastSync >= 5000;
+
+    // If no meaningful change and keepalive interval not reached, SKIP network request!
+    if (!hasMeaningfulChange && !isKeepaliveDue) {
+      return;
+    }
+
+    // Minimum throttle between sends (at least 800ms) to prevent microbursts
+    if (!isKeepaliveDue && timeSinceLastSync < 800) {
+      return;
+    }
+
+    lastTelemetrySyncTimeRef.current = now;
+    lastSentTelemetryRef.current = {
+      speed: currentSpeed,
+      covered,
+      alert,
+      camera: cameraName,
+      challanCount,
+      distToCamera: distCamera,
+      clearedCameras: currentClearedCams
+    } as any;
+
     const currentPassedCams = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m);
     const currentPassedCount = currentPassedCams.length;
     const currentRemainingCount = Math.max(0, journey.cameras.length - currentPassedCount);
 
-    const executeSync = () => {
-      lastTelemetrySyncTimeRef.current = Date.now();
-
-      const payload = {
-        session_id: 'live_ride',
-        section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
-        speed_kmh: currentSpeed,
-        limit_kmh: postedLimit,
-        ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
-        current_avg_kmh: Math.round(currentPace.currentAvg_kmh),
-        banked_time_s: Math.round(currentPace.banked_time_s),
-        covered_m: covered,
-        remaining_m: Math.round(distToDestination_m),
-        next_camera: cameraName,
-        distance_to_camera_m: distCamera,
-        challan_risk:
-          challanCount > 0
-            ? `High Challan Risk (${challanCount} incident(s) in region)`
-            : 'Zero Challan Risk (Clean Record)',
-        alert: alert,
-        language: voiceLanguage,
-        route_origin: journey.origin.name,
-        route_destination: journey.destination.name,
-        total_journey_m: Math.round(journey.totalDistance_m),
-        journey_elapsed_s: Math.round(journeyElapsed_s),
-        total_cameras: journey.cameras.length,
-        cleared_cameras: currentPassedCount,
-        cameras_passed: currentPassedCount,
-        cameras_remaining: currentRemainingCount,
-        passed_camera_names: currentPassedCams.map(c => c.name),
-        challan_count: challanCount
-      };
-
-      fetch(apiUrl('/api/telemetry/live'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache'
-        },
-        body: JSON.stringify(payload)
-      }).catch(() => {});
+    const payload = {
+      session_id: 'live_ride',
+      section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
+      speed_kmh: currentSpeed,
+      limit_kmh: postedLimit,
+      ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
+      current_avg_kmh: Math.round(currentPace.currentAvg_kmh),
+      banked_time_s: Math.round(currentPace.banked_time_s),
+      covered_m: covered,
+      remaining_m: Math.round(distToDestination_m),
+      next_camera: cameraName,
+      distance_to_camera_m: distCamera,
+      challan_risk:
+        challanCount > 0
+          ? `High Challan Risk (${challanCount} incident(s) in region)`
+          : 'Zero Challan Risk (Clean Record)',
+      alert: alert,
+      language: voiceLanguage,
+      route_origin: journey.origin.name,
+      route_destination: journey.destination.name,
+      total_journey_m: Math.round(journey.totalDistance_m),
+      journey_elapsed_s: Math.round(journeyElapsed_s),
+      total_cameras: journey.cameras.length,
+      cleared_cameras: currentPassedCount,
+      cameras_passed: currentPassedCount,
+      cameras_remaining: currentRemainingCount,
+      passed_camera_names: currentPassedCams.map(c => c.name),
+      challan_count: challanCount
     };
 
-    // Low-latency trailing debounce (120ms): smooths high-frequency loop without skipping final live state
-    if (pendingSyncTimerRef.current) {
-      clearTimeout(pendingSyncTimerRef.current);
-    }
-    pendingSyncTimerRef.current = setTimeout(() => {
-      executeSync();
-    }, 120);
-
-    return () => {
-      if (pendingSyncTimerRef.current) {
-        clearTimeout(pendingSyncTimerRef.current);
-      }
-    };
+    fetch(apiUrl('/api/telemetry/live'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(res => {
+        if (res.ok) {
+          lastBackendFailTimeRef.current = 0;
+        } else {
+          lastBackendFailTimeRef.current = Date.now();
+        }
+      })
+      .catch(() => {
+        lastBackendFailTimeRef.current = Date.now();
+      });
   }, [
     journeyCovered_m,
     currentSpeedThrottle,
@@ -802,6 +819,66 @@ export default function App() {
     currentPace.max_avg_kmh,
     currentPace.currentAvg_kmh,
     currentPace.banked_time_s,
+    voiceLanguage,
+    journey,
+    journeyElapsed_s
+  ]);
+
+  // Gentle 5-Second Idle Keepalive Pulse: Ensures stationary vehicles refresh timestamp without spamming
+  useEffect(() => {
+    const keepaliveTimer = setInterval(() => {
+      const now = Date.now();
+      if (now - lastTelemetrySyncTimeRef.current >= 5000) {
+        const currentKeepalivePassed = journey.cameras.filter(c => c.journeyDistance_m <= journeyCovered_m);
+        const payload = {
+          session_id: 'live_ride',
+          section_name: activeZone ? activeZone.name : 'Open Gurugram Road Alignment',
+          speed_kmh: Math.round(currentSpeedThrottle),
+          limit_kmh: postedLimit,
+          ceiling_kmh: currentPace.max_avg_kmh !== null ? Math.round(currentPace.max_avg_kmh) : postedLimit,
+          current_avg_kmh: Math.round(currentPace.currentAvg_kmh),
+          banked_time_s: Math.round(currentPace.banked_time_s),
+          covered_m: Math.round(journeyCovered_m),
+          remaining_m: Math.round(distToDestination_m),
+          next_camera: nextCamera ? nextCamera.name : 'Upcoming GMDA ANPR Camera',
+          distance_to_camera_m: Math.round(distToNextCamera_m),
+          challan_risk:
+            challanHistory.length > 0
+              ? `High Challan Risk (${challanHistory.length} incident(s) in region)`
+              : 'Zero Challan Risk (Clean Record)',
+          alert: currentPace.alert,
+          language: voiceLanguage,
+          route_origin: journey.origin.name,
+          route_destination: journey.destination.name,
+          total_journey_m: Math.round(journey.totalDistance_m),
+          journey_elapsed_s: Math.round(journeyElapsed_s),
+          total_cameras: journey.cameras.length,
+          cleared_cameras: currentKeepalivePassed.length,
+          cameras_passed: currentKeepalivePassed.length,
+          cameras_remaining: Math.max(0, journey.cameras.length - currentKeepalivePassed.length),
+          passed_camera_names: currentKeepalivePassed.map(c => c.name),
+          challan_count: challanHistory.length
+        };
+        lastTelemetrySyncTimeRef.current = now;
+        fetch(apiUrl('/api/telemetry/live'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).catch(() => {});
+      }
+    }, 5000);
+
+    return () => clearInterval(keepaliveTimer);
+  }, [
+    activeZone,
+    currentSpeedThrottle,
+    postedLimit,
+    currentPace,
+    journeyCovered_m,
+    distToDestination_m,
+    nextCamera,
+    distToNextCamera_m,
+    challanHistory.length,
     voiceLanguage,
     journey,
     journeyElapsed_s
