@@ -5,6 +5,8 @@ import { CallState } from '@bolna/web-call';
 import { AlertLevel, ChallanEvent } from '../types/pace';
 import {
   CornerUpRight,
+  CornerUpLeft,
+  ArrowUp,
   Mic,
   Search,
   Pause,
@@ -57,7 +59,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
   nextCamera,
   distToNextCamera_m,
   distToDestination_m,
-  journeyCovered_m: _journeyCovered_m,
+  journeyCovered_m,
   journeyElapsed_s: _journeyElapsed_s,
   challanHistory,
   isPlaying,
@@ -113,24 +115,45 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
     return () => clearTimeout(timer);
   }, [remainingSeconds]);
 
-  // Maneuver title & zone specs
-  const nextTargetName = activeZone
-    ? activeZone.name.split('→')[0].trim()
-    : nextCamera
-    ? nextCamera.name
-    : journey.destination?.name || 'Shankar Chowk';
-  const targetDistanceMiles = ((distToNextCamera_m > 0 ? distToNextCamera_m : 320) / 1609.34).toFixed(1);
+  // 1. Live Maneuver & Upcoming Camera / Turn Target
+  const targetCamera = nextCamera || (activeZone ? activeZone.endCamera : null);
+  const isApproachingCamera = Boolean(targetCamera && targetCamera.journeyDistance_m >= journeyCovered_m);
 
+  const nextTargetName = isApproachingCamera && targetCamera
+    ? targetCamera.name
+    : journey.destination?.name || 'Destination';
+
+  // Real-time distance to upcoming target (updates continuously on every 100ms tick as vehicle moves)
+  const distToTarget_m = isApproachingCamera && targetCamera
+    ? Math.max(0, targetCamera.journeyDistance_m - journeyCovered_m)
+    : Math.max(0, distToDestination_m);
+
+  // Dynamic distance formatted (Google Maps style: mi or meters when close)
+  const distInMiles = (distToTarget_m / 1609.34).toFixed(1);
+  const distFormatted = distToTarget_m < 300
+    ? `${Math.max(10, Math.round(distToTarget_m))} m`
+    : `${distInMiles} mi`;
+
+  // Clean split for parenthetical labels e.g. "Shankar Chowk (Cyber Hub)"
   const nameParts = nextTargetName.includes('(')
     ? [nextTargetName.split('(')[0].trim(), `(${nextTargetName.split('(')[1]}`]
     : [nextTargetName, ''];
+
+  const targetCategoryLabel = isApproachingCamera
+    ? 'UPCOMING ANPR CAMERA'
+    : 'UPCOMING DESTINATION';
+
+  // Dynamic Turn / Maneuver Icon
+  const lowerName = nextTargetName.toLowerCase();
+  const isLeftTurn = lowerName.includes('left');
+  const isFork = lowerName.includes('flyover') || lowerName.includes('elevated') || lowerName.includes('fork');
 
   const cpNum = activeCheckpointIndex || 1;
   const zoneLengthKm = activeZone ? (activeZone.length_m / 1000).toFixed(2) : '3.35';
   const displayCeiling = ceilingSpeed !== null ? ceilingSpeed.toFixed(1) : (postedLimit - 2.8).toFixed(1);
 
-  // Dynamic Bolna Coach bubble message
-  const bolnaCoachMessage =
+  // Dynamic EDITH Coach bubble message
+  const edithCoachMessage =
     currentSpeed > (ceilingSpeed || postedLimit)
       ? `Slow down to < ${Math.round(ceilingSpeed || postedLimit)} km/h. Banked deficit!`
       : currentSpeed > (ceilingSpeed || postedLimit) - 5
@@ -142,7 +165,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
 
   return (
     <div className="relative w-full max-w-[420px] md:max-w-[390px] md:mx-0 min-h-[820px] flex flex-col justify-between select-none pointer-events-none p-2 sm:p-4 transition-all duration-300">
-      {/* 1. Top Section: Status Bar + Sticky Navigation Card + Floating Bolna Bubble */}
+      {/* 1. Top Section: Status Bar + Sticky Navigation Card + Floating EDITH Bubble */}
       <div className="pointer-events-auto flex flex-col gap-2.5">
         {/* Smartphone Status Bar (11:00, Signal, Battery) */}
         <div className="flex items-center justify-between px-3 text-white text-xs font-semibold drop-shadow-md">
@@ -158,13 +181,19 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
           /* Minimized Compact Top Pill (Full Map Mode) */
           <div className="bg-[#092847]/95 backdrop-blur-md rounded-2xl p-2.5 px-3.5 shadow-2xl border border-blue-500/40 flex items-center justify-between gap-3 animate-fade-in">
             <div className="flex items-center gap-2.5 truncate">
-              <CornerUpRight className="w-6 h-6 text-white stroke-[2.5] flex-shrink-0" />
+              {isLeftTurn ? (
+                <CornerUpLeft className="w-6 h-6 text-white stroke-[2.5] flex-shrink-0" />
+              ) : isFork ? (
+                <GitFork className="w-6 h-6 text-white stroke-[2.5] flex-shrink-0" />
+              ) : (
+                <CornerUpRight className="w-6 h-6 text-white stroke-[2.5] flex-shrink-0" />
+              )}
               <div className="flex flex-col truncate">
                 <span className="text-white text-xs font-bold leading-tight truncate">
-                  {targetDistanceMiles} mi • {nameParts[0]}
+                  {distFormatted} • {nameParts[0]}
                 </span>
-                <span className="text-[10px] text-gray-300 font-mono">
-                  Limit: {postedLimit} km/h • CP {cpNum}/4
+                <span className="text-[10px] text-cyan-300 font-mono">
+                  {targetCategoryLabel} • Limit: {postedLimit} km/h
                 </span>
               </div>
             </div>
@@ -177,34 +206,43 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
             </button>
           </div>
         ) : (
-          /* Full Top Navigation Card (Deep Navy/Teal Card with Right Turn Arrow) */
+          /* Full Top Navigation Card (Deep Navy/Teal Card with Turn Arrow) */
           <div className="bg-[#092847] rounded-[28px] p-4 shadow-2xl border border-[#164372]/60 flex flex-col gap-2.5">
             <div className="flex items-start justify-between">
-              {/* Left: Right-Turn Arrow + Distance + Destination Text */}
+              {/* Left: Turn Arrow + Real-time Distance + Destination Text */}
               <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center">
-                  <CornerUpRight className="w-10 h-10 text-white stroke-[2.5]" />
+                  {isLeftTurn ? (
+                    <CornerUpLeft className="w-10 h-10 text-white stroke-[2.5]" />
+                  ) : isFork ? (
+                    <GitFork className="w-10 h-10 text-white stroke-[2.5]" />
+                  ) : (
+                    <CornerUpRight className="w-10 h-10 text-white stroke-[2.5]" />
+                  )}
                   <span className="text-white text-lg font-black tracking-tight leading-tight mt-0.5">
-                    {targetDistanceMiles} mi
+                    {distFormatted}
                   </span>
                 </div>
 
-                <div className="flex flex-col pt-0.5">
-                  <span className="text-white text-xl font-bold leading-tight">
+                <div className="flex flex-col pt-0.5 max-w-[200px]">
+                  <span className="text-[10px] font-bold tracking-wider text-cyan-400 uppercase">
+                    {targetCategoryLabel}
+                  </span>
+                  <span className="text-white text-xl font-bold leading-tight truncate">
                     {nameParts[0]}
                   </span>
                   {nameParts[1] ? (
-                    <span className="text-white text-xl font-bold leading-tight">
+                    <span className="text-white text-sm font-semibold leading-tight text-gray-300 truncate">
                       {nameParts[1]}
                     </span>
                   ) : null}
                 </div>
               </div>
 
-              {/* Right: FRIDAY Bolna Voice AI Square Button */}
+              {/* Right: EDITH Voice Co-Pilot Square Button */}
               <button
                 onClick={handleToggleFridayCall}
-                title={isFridayActive ? 'Click to disconnect FRIDAY call' : 'Click to talk with FRIDAY Voice AI'}
+                title={isFridayActive ? 'Click to disconnect EDITH call' : 'Click to talk with EDITH Voice AI'}
                 className={`w-20 h-20 rounded-2xl flex flex-col items-center justify-between p-2 text-white font-mono cursor-pointer transition-all shadow-md flex-shrink-0 ${
                   isFridayActive
                     ? 'bg-gradient-to-b from-emerald-600 to-teal-700 border border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
@@ -214,7 +252,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
                 }`}
               >
                 <span className="text-[10px] font-bold tracking-wider uppercase">
-                  {isFridayActive ? 'ONLINE' : 'FRIDAY'}
+                  {isFridayActive ? 'ONLINE' : 'EDITH'}
                 </span>
 
                 {/* Waveform graphic */}
@@ -226,7 +264,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
                 </div>
 
                 <span className="text-[8px] font-extrabold tracking-tight text-center leading-tight">
-                  {isFridayActive ? 'CONNECTED' : isFridayConnecting ? 'CONNECTING...' : 'TALK TO FRIDAY'}
+                  {isFridayActive ? 'CONNECTED' : isFridayConnecting ? 'CONNECTING...' : 'TALK TO EDITH'}
                 </span>
               </button>
             </div>
@@ -235,17 +273,20 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
             <div className="bg-[#051324] rounded-xl py-1.5 px-3 flex items-center gap-2 text-xs font-semibold text-gray-200">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
               <span className="truncate">
-                ANPR SPEED TRAP ACTIVE • Checkpoint {cpNum} of 4 ({cpNum * 25}%) • {zoneLengthKm} km Zone
+                {activeZone
+                  ? `ANPR SPEED TRAP ACTIVE • Checkpoint ${cpNum} of 4 (${cpNum * 25}%) • ${zoneLengthKm} km Zone`
+                  : `RADAR CORRIDOR ACTIVE • Limit ${postedLimit} km/h • Monitoring Active`
+                }
               </span>
             </div>
           </div>
         )}
 
-        {/* Floating Bolna AI Speech Bubble (Top Left) */}
+        {/* Floating EDITH Speech Bubble (Top Left) */}
         <div className="self-start bg-[#1d6ee5] text-white rounded-xl py-2 px-3.5 shadow-lg flex items-center gap-2 max-w-[310px] animate-fade-in border border-blue-300/30">
           <Mic className="w-4 h-4 text-white flex-shrink-0 animate-pulse" />
           <span className="text-xs font-semibold leading-snug">
-            BOLNA AI: "{latestSpeech || bolnaCoachMessage}"
+            EDITH: "{latestSpeech || edithCoachMessage}"
           </span>
         </div>
       </div>
@@ -387,7 +428,10 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({
             <div className="bg-[#051324] rounded-xl py-1.5 px-3 flex items-center gap-2 text-xs font-semibold text-gray-200 shadow-md">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
               <span className="truncate">
-                ANPR SPEED TRAP ACTIVE • Checkpoint ({cpNum} of 4) • {zoneLengthKm} km Zone
+                {activeZone
+                  ? `ANPR SPEED TRAP ACTIVE • Checkpoint (${cpNum} of 4) • ${zoneLengthKm} km Zone`
+                  : `RADAR CORRIDOR ACTIVE • Limit ${postedLimit} km/h • Monitoring Active`
+                }
               </span>
             </div>
 

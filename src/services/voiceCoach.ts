@@ -1,6 +1,6 @@
 import { AlertLevel, VoiceLanguage } from '../types/pace';
 import type { CheckpointWarning } from '../engine/warningEngine';
-import { bolnaVoiceService } from './bolnaVoiceService';
+import { gnaniVoiceService as bolnaVoiceService } from './gnaniVoiceService';
 import { apiUrl } from '../config/env';
 
 class VoiceCoachService {
@@ -34,6 +34,7 @@ class VoiceCoachService {
 
   public setLanguage(lang: VoiceLanguage) {
     this.currentLanguage = lang;
+    bolnaVoiceService.setLanguage(lang);
   }
 
   public getLanguage(): VoiceLanguage {

@@ -78,7 +78,7 @@ export const TopControlNavBar: React.FC<TopControlNavBarProps> = ({
             }`}
           >
             <Navigation className="w-3.5 h-3.5" />
-            <span>2. Trip & FRIDAY</span>
+            <span>2. Trip & EDITH</span>
           </button>
         </div>
 

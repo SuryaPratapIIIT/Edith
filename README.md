@@ -1,12 +1,12 @@
 <div align="center">
 
-#                                        VELO AI 
+#                                        Edith AI 
 ### Real-Time Average Speed Pacing & ANPR Radar Defense for Smart Expressways
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19_Tailwind-61DAFB.svg?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Bolna AI](https://img.shields.io/badge/Bolna_Voice_AI-WebRTC_SIP-10B981.svg?style=for-the-badge)](https://www.bolna.ai)
+[![Gnani AI](https://img.shields.io/badge/Gnani_Voice_AI-Prisma_STT_%26_Timbre_TTS-10B981.svg?style=for-the-badge)](https://gnani.ai)
 [![Test Suite](https://img.shields.io/badge/Tests-36%2F36_Passing-brightgreen.svg?style=for-the-badge)](audit_test_cases.py)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
@@ -58,7 +58,7 @@ If a driver cruises at **120 km/h** for the first 3 km of a 5 km (70 km/h limit)
 
 * **Continuous Pacing Math:** Real-time feedback accounting for road curvature (+12% over straight displacement) and a 4% clock-skew safety margin.
 * **Dual-Risk Defense:** Protects against both **Spot Camera Crossings** (radar within 20m FOV) and **Sectional Average Corridor Enforcement**.
-* **Zero Cognitive Distraction:** Fully hands-free conversational voice co-pilot (**FRIDAY**) powered by **Bolna Voice AI**, **Deepgram**, **Azure OpenAI**, and **ElevenLabs**.
+* **Zero Cognitive Distraction:** Fully hands-free conversational voice co-pilot (**FRIDAY**) powered by **Gnani AI** (**Prisma STT** & **Timbre TTS**) for natural Indian-accented speech and low-latency interaction.
 * **No Unsolicited Fine Numbers:** Compliant reporting—alerts users to regional challan risk levels without presenting speculative monetary fine amounts.
 
 ---

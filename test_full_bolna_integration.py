@@ -13,6 +13,11 @@ agent_id = os.getenv("BOLNA_AGENT_ID", "e629dcb5-36f8-4ef6-9748-8eff47c824e5")
 def run_tests():
     print("=== TESTING VELO AI <-> BOLNA INTEGRATION ===")
     
+    if not api_key or api_key.startswith("your_") or len(api_key) < 10:
+        print("[INFO] Bolna key not configured. Gnani AI is active voice engine.")
+        print("[OK] Skipping legacy cloud Bolna test.")
+        return
+
     # 1. Fetch active tunnel URL directly from Bolna agent configuration
     req = urllib.request.Request(
         f"https://api.bolna.ai/v2/agent/{agent_id}",

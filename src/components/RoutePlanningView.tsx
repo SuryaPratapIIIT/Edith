@@ -307,10 +307,10 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
               </div>
             </div>
 
-            {/* FRIDAY Bolna Voice AI Compact Pill Button */}
+            {/* EDITH Voice Co-Pilot Compact Pill Button */}
             <button
               onClick={handleToggleFridayCall}
-              title={isFridayActive ? 'Click to disconnect FRIDAY call' : 'Click to talk with FRIDAY Voice AI'}
+              title={isFridayActive ? 'Click to disconnect EDITH call' : 'Click to talk with EDITH Voice AI'}
               className={`px-3 py-1.5 rounded-full flex items-center gap-2 text-white font-mono cursor-pointer transition-all shadow-md flex-shrink-0 active:scale-95 ${
                 isFridayActive
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-700 border border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.5)]'
@@ -320,7 +320,7 @@ export const RoutePlanningView: React.FC<RoutePlanningViewProps> = ({
               }`}
             >
               <span className="text-[10px] font-extrabold tracking-wider uppercase">
-                {isFridayActive ? 'ONLINE' : isFridayConnecting ? 'CALLING...' : 'FRIDAY'}
+                {isFridayActive ? 'ONLINE' : isFridayConnecting ? 'CALLING...' : 'EDITH'}
               </span>
 
               {/* Compact Waveform */}

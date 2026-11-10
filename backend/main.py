@@ -8,7 +8,7 @@ Provides:
   GET  /api/gantries/sections                – All enforcement sections derived from gantries
   GET  /health                               – Liveness probe
 """
-from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi import FastAPI, HTTPException, Response, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
@@ -17,6 +17,7 @@ import json
 import os
 import asyncio
 import httpx
+import base64
 from pathlib import Path
 import logging
 from typing import Optional, List
@@ -65,6 +66,23 @@ try:
     from pace_engine import calculate_pace, haversine_m
 except ImportError:
     from backend.pace_engine import calculate_pace, haversine_m
+
+try:
+    from gnani_service import (
+        is_gnani_configured,
+        get_gnani_config,
+        transcribe_audio_bytes,
+        synthesize_speech,
+        answer_telemetry_query,
+    )
+except ImportError:
+    from backend.gnani_service import (
+        is_gnani_configured,
+        get_gnani_config,
+        transcribe_audio_bytes,
+        synthesize_speech,
+        answer_telemetry_query,
+    )
 
 app = FastAPI(
     title="Voice-First Pace Coach API",
@@ -332,6 +350,170 @@ def spawn_tunnel_background():
             print("[TUNNEL] Auto-spawned background tunnel supervisor from backend.")
         except Exception as e:
             print(f"[TUNNEL ERROR] Failed to auto-spawn tunnel: {e}")
+
+# ─── Gnani AI Voice Endpoints (STT Prisma & TTS Timbre) ─────────────────────────
+
+class GnaniTTSRequest(BaseModel):
+    text: str
+    language: Optional[str] = "en-IN"
+    voice: Optional[str] = None
+    speed: Optional[float] = 1.0
+
+
+class GnaniChatJSONRequest(BaseModel):
+    query: Optional[str] = None
+    session_id: Optional[str] = "live_ride"
+    language: Optional[str] = "hinglish"
+    audio_base64: Optional[str] = None
+
+
+@app.get("/api/gnani/config")
+def get_gnani_configuration():
+    """Return Gnani AI STT & TTS active model configuration."""
+    return get_gnani_config()
+
+
+@app.post("/api/gnani/session")
+async def create_gnani_session(req: Optional[dict] = None):
+    """
+    Initializes a voice session with Gnani AI co-pilot.
+    Resets any prior hangup flags and returns initial session greeting and configuration.
+    """
+    global global_hangup_requested, global_hangup_timestamp
+    global_hangup_requested = False
+    global_hangup_timestamp = 0.0
+    for s in sessions.values():
+        s["hangup_requested"] = False
+        s["hangup_timestamp"] = 0
+
+    conf = get_gnani_config()
+    greeting_text = (
+        "EDITH online hai boss. Safe pace monitor ho raha hai. Bataiye kya madad karun?"
+        if req and req.get("language") in ["hindi", "hinglish"] else
+        "EDITH online. Safe pace monitoring is active. How can I help you?"
+    )
+    audio_bytes, _ = synthesize_speech(greeting_text, language="hi-IN" if req and req.get("language") in ["hindi", "hinglish"] else "en-IN")
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+    return {
+        "status": "active",
+        "greeting_text": greeting_text,
+        "audio_base64": audio_b64,
+        "config": conf
+    }
+
+
+@app.post("/api/gnani/stt")
+async def gnani_speech_to_text(
+    file: Optional[UploadFile] = File(None),
+    language_code: Optional[str] = Form("hi-IN")
+):
+    """
+    Transcribes microphone audio using Gnani Prisma STT model.
+    """
+    if not file:
+        raise HTTPException(status_code=400, detail="Audio file is required for STT")
+    content = await file.read()
+    filename = file.filename or "audio.wav"
+    result = transcribe_audio_bytes(content, filename=filename, language_code=language_code)
+    return result
+
+
+@app.post("/api/gnani/tts")
+def gnani_text_to_speech(req: GnaniTTSRequest):
+    """
+    Synthesizes speech using Gnani Timbre TTS (models timbre-v2.5 / timbre-v3.0).
+    Returns binary WAV audio.
+    """
+    audio_bytes, media_type = synthesize_speech(
+        text=req.text,
+        language=req.language,
+        voice=req.voice,
+        speed=req.speed
+    )
+    return Response(content=audio_bytes, media_type=media_type)
+
+
+@app.post("/api/gnani/chat")
+async def gnani_voice_interaction(
+    request: Request,
+    query: Optional[str] = Form(None),
+    session_id: Optional[str] = Form("live_ride"),
+    language: Optional[str] = Form("hinglish"),
+    file: Optional[UploadFile] = File(None)
+):
+    """
+    Comprehensive low-latency Voice Interaction endpoint:
+    1. If audio is uploaded, transcribes using Gnani Prisma STT.
+    2. Queries live automotive pace telemetry in real-time.
+    3. Formulates precise, zero-distraction co-pilot response.
+    4. Synthesizes spoken response using Gnani Timbre TTS.
+    5. Returns transcript, answer text, audio base64, and hangup signals.
+    Supports both multipart form data (with file upload) and application/json.
+    """
+    user_query = query or ""
+    effective_session_id = session_id or "live_ride"
+    effective_lang = language or "hinglish"
+
+    # Handle application/json requests
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                user_query = body.get("query") or user_query
+                effective_session_id = body.get("session_id") or effective_session_id
+                effective_lang = body.get("language") or effective_lang
+                b64_audio = body.get("audio_base64")
+                if b64_audio:
+                    raw_audio = base64.b64decode(b64_audio)
+                    stt_res = transcribe_audio_bytes(raw_audio, filename="audio.wav", language_code="hi-IN" if "hi" in effective_lang.lower() else "en-IN")
+                    if stt_res.get("transcript"):
+                        user_query = stt_res["transcript"]
+        except Exception:
+            pass
+
+    # If multipart file uploaded, transcribe with Gnani STT
+    if file:
+        audio_content = await file.read()
+        filename = file.filename or "audio.wav"
+        stt_res = transcribe_audio_bytes(
+            audio_content,
+            filename=filename,
+            language_code="hi-IN" if "hi" in effective_lang.lower() else "en-IN"
+        )
+        if stt_res.get("transcript"):
+            user_query = stt_res["transcript"]
+
+    # Retrieve live telemetry session
+    sess = sessions.get(effective_session_id) or sessions.get("live_ride") or {}
+    answer = answer_telemetry_query(user_query, sess, lang=effective_lang)
+
+    # If hangup requested by driver, propagate to global session flags
+    if answer.get("hangup"):
+        global global_hangup_requested, global_hangup_timestamp
+        global_hangup_requested = True
+        global_hangup_timestamp = time.time()
+        for s in sessions.values():
+            s["hangup_requested"] = True
+            s["hangup_timestamp"] = global_hangup_timestamp
+
+    # Synthesize spoken audio with Gnani TTS
+    audio_bytes, _ = synthesize_speech(
+        text=answer["response_text"],
+        language="hi-IN" if "hi" in effective_lang.lower() else "en-IN"
+    )
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+    return {
+        "query": user_query,
+        "response_text": answer["response_text"],
+        "action": answer.get("action", "reply"),
+        "hangup": answer.get("hangup", False),
+        "category": answer.get("category", "status"),
+        "audio_base64": audio_b64
+    }
+
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -1066,8 +1248,8 @@ def reset_hangup_status(response: Response):
 class AnalyzeSituationRequest(BaseModel):
     speed_kmh: float
     limit_kmh: float
-    covered_m: float
-    remaining_m: float
+    covered_m: float = 0.0
+    remaining_m: float = 5000.0
     camera_nearby: Optional[str] = None
     distance_to_camera_m: Optional[float] = None
     alert: Optional[str] = "green"
@@ -1210,6 +1392,18 @@ async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
         else:
             spoken = f"Status green: Speed {round(speed)} km/h safe limit {round(limit)} km/h ke andar chal rahi hai."
 
+    # Synthesize proactive audio alert with Gnani Timbre TTS
+    audio_b64 = None
+    try:
+        if is_gnani_configured() and spoken:
+            audio_bytes, _ = synthesize_speech(
+                text=spoken,
+                language="hi-IN" if "hi" in lang.lower() else "en-IN"
+            )
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as e:
+        logger.error(f"[AnalyzeSituation TTS Error]: {e}")
+
     return {
         "status": "analyzed",
         "event_type": req.event_type,
@@ -1218,13 +1412,15 @@ async def analyze_situation_dynamically(req: AnalyzeSituationRequest):
         "ceiling_kmh": ceiling,
         "alert": req.alert,
         "spoken_text": spoken,
-        "persona": "FRIDAY (Bolna Voice AI Agent)"
+        "persona": "EDITH (Voice AI Co-Pilot)",
+        "audio_base64": audio_b64
     }
 
 
 @app.get("/api/config")
 def get_config():
     """Return public backend configuration loaded from .env."""
+    gnani_conf = get_gnani_config()
     return {
         "environment": ENVIRONMENT,
         "safety_margin": SAFETY_MARGIN,
@@ -1233,6 +1429,11 @@ def get_config():
         "bolna_api_url": BOLNA_API_URL,
         "has_bolna_key": bool(BOLNA_API_KEY and BOLNA_API_KEY != "your_bolna_api_key_here"),
         "bolna_agent_id": BOLNA_AGENT_ID,
+        "has_gnani_key": gnani_conf["configured"],
+        "gnani_stt_model": gnani_conf["stt_model"],
+        "gnani_tts_model": gnani_conf["tts_model"],
+        "gnani_voice_en": gnani_conf["voice_en"],
+        "gnani_voice_hi": gnani_conf["voice_hi"],
         "port": PORT,
         "host": HOST,
     }
