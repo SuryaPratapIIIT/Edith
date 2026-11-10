@@ -491,13 +491,19 @@ class GnaniVoiceService {
         if (data.response_text) {
           this.notifySpeech(data.response_text, 'driver_reply');
         }
-        if (data.audio_base64) {
-          await this.playAudioBase64(data.audio_base64);
-        }
         if (data.hangup) {
-          setTimeout(() => {
-            this.stopCall();
-          }, 1000);
+          console.log('[Gnani Voice] Hangup command recognized. Disconnecting call...');
+          if (data.audio_base64) {
+            try {
+              await this.playAudioBase64(data.audio_base64);
+            } catch (e) {
+              console.warn('[Gnani Voice] Hangup audio playback skipped:', e);
+            }
+          }
+          await this.stopCall();
+          return;
+        } else if (data.audio_base64) {
+          await this.playAudioBase64(data.audio_base64);
         }
       }
     } catch (err) {
@@ -527,13 +533,19 @@ class GnaniVoiceService {
         if (data.response_text) {
           this.notifySpeech(data.response_text, 'driver_reply');
         }
-        if (data.audio_base64) {
-          await this.playAudioBase64(data.audio_base64);
-        }
         if (data.hangup) {
-          setTimeout(() => {
-            this.stopCall();
-          }, 1000);
+          console.log('[Gnani Voice] Hangup command recognized. Disconnecting call...');
+          if (data.audio_base64) {
+            try {
+              await this.playAudioBase64(data.audio_base64);
+            } catch (e) {
+              console.warn('[Gnani Voice] Hangup audio playback skipped:', e);
+            }
+          }
+          await this.stopCall();
+          return;
+        } else if (data.audio_base64) {
+          await this.playAudioBase64(data.audio_base64);
         }
       }
     } catch (err) {
